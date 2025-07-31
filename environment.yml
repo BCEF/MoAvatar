@@ -1,20 +1,33 @@
-name: gaussian_splatting
+name: MoAvatar
 channels:
   - pytorch
   - conda-forge
   - defaults
 dependencies:
-  - cudatoolkit=11.6
-  - plyfile
-  - python=3.7.13
-  - pip=22.3.1
-  - pytorch=1.12.1
-  - torchaudio=0.12.1
-  - torchvision=0.13.1
+  - python=3.10.18
+  - pip=25.1
   - tqdm
   - pip:
-    - submodules/diff-gaussian-rasterization
-    - submodules/simple-knn
-    - submodules/fused-ssim
-    - opencv-python
-    - joblib
+      - submodules/diff-gaussian-rasterization
+      - submodules/simple-knn
+      - submodules/fused-ssim
+      - --index-url https://pypi.org/simple/
+      - chumpy==0.70
+      - loguru==0.7.3
+      - lpips==0.1.4
+      - ninja==1.11.1.4
+      - numpy==1.23.4
+      - open3d==0.17.0
+      - opencv-python==4.10.0.84
+      - plyfile==1.1
+      - pytorch3d==0.7.8
+      - scikit-image==0.24.0
+      - scikit-learn==1.5.2
+      - scipy==1.11.4
+      - tqdm==4.66.5
+      - --index-url https://download.pytorch.org/whl/cu118
+      - --trusted-host download.pytorch.org
+      - torch==2.7.1+cu118
+      - torchaudio==2.7.1+cu118
+      - torchvision==0.22.1+cu118
+      
