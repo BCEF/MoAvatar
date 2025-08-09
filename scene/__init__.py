@@ -44,7 +44,7 @@ class Scene:
         self.args = args
         self.resolution_scales = resolution_scales
         self.scale=1
-        self.loadMultiFrameSceneInfo(args, shuffle)
+        self.loadMultiDeformSceneInfo(args, shuffle)
 
     #SUMO
     def loadOneFrameSceneInfo(self,args,shuffle=True):
@@ -111,6 +111,40 @@ class Scene:
             self.flame_codes[kid]=self.loadFlameCodes(flame_path,kid,timecode)
         
         self.loadSceneInfo(args, shuffle)
+
+    def loadMultiDeformSceneInfo(self,args,shuffle=True):
+        self.train_cameras={}
+        self.test_cameras={}
+        self.flame_codes={}
+        root_folder=args.source_path
+        subfolders = [f for f in os.listdir(root_folder) if 'sparse' not in f and os.path.isdir(os.path.join(root_folder,f))]
+        subfolders.sort()
+
+        self.scene_info=None
+        for frame_id,subfolder in enumerate(subfolders):
+            kid=frame_id
+            timecode=float(frame_id)/len(subfolders)
+            frame_folder=os.path.join(root_folder,subfolder)
+            colmap_folder=os.path.join(frame_folder,'sparse/0')
+            if not os.path.exists(colmap_folder):
+                colmap_folder = os.path.join(root_folder, 'sparse/0')
+            deformer_path=os.path.join(frame_folder,'transforms.json')
+
+            scene_info=sceneLoadTypeCallbacks["Deform"](frame_folder,args.images, args.depths, args.eval, args.train_test_exp,
+                                                       colmap_folder=colmap_folder,deformer_path=deformer_path,
+                                                       kid=kid,timecode=timecode)
+            if self.scene_info is None:
+                self.scene_info=scene_info
+            else:
+                self.scene_info.train_cameras.extend(scene_info.train_cameras)
+                self.scene_info.test_cameras.extend(scene_info.test_cameras)
+            
+            self.flame_codes[kid]={}
+            self.flame_codes[kid]['deformer_path']=deformer_path
+            self.flame_codes[kid]['kid']=kid
+            self.flame_codes[kid]['t']=timecode
+        
+        self.loadSceneInfo(args,shuffle)
 
     #SUMO
     def loadSceneInfo(self,args,shuffle):

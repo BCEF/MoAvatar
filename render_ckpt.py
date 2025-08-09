@@ -14,19 +14,21 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 import cv2
 
 def training(dataset, opt, pipe,checkpoint_path):
-    if checkpoint_path:
-        checkpoint,_ = torch.load(checkpoint_path,weights_only=False, map_location="cuda")
+    
     foldername=os.path.splitext(os.path.basename(checkpoint_path))[0]
     os.makedirs(os.path.join(dataset.model_path, foldername), exist_ok=True)
+    
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     scene = Scene(dataset, gaussians,shuffle=False)
-    
-    if checkpoint:
-        gaussians.restore(checkpoint, opt)
-        gaussians.freeze_points_opt(scene.model_path)
+    # gaussians.training_setup(opt)
+    gaussians.training_setup_freeze_x0(opt)
 
-    gaussians.training_setup(opt)    
-    
+    if checkpoint_path:
+        (model_params, first_iter) = torch.load(checkpoint_path,weights_only=False,map_location="cuda")
+        # gaussians.restore(model_params, opt)
+        gaussians.restore_from_keyframe(model_params,opt)
+
+    torch.cuda.empty_cache()
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -35,9 +37,9 @@ def training(dataset, opt, pipe,checkpoint_path):
     num_batches = dataset.batchnum
     batch_size = max(1, len(all_train_cameras) // num_batches)
 
-    for batch_idx in range(num_batches):
+    for batch_idx in range(num_batches+1):
         batch_start = batch_idx * batch_size
-        if batch_idx == num_batches - 1:
+        if batch_idx == num_batches:
             batch_end = len(all_train_cameras)
         else:
             batch_end = batch_start + batch_size
@@ -46,31 +48,39 @@ def training(dataset, opt, pipe,checkpoint_path):
         scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.resolution)
         scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.resolution)
 
+
         viewpoint = scene.getTrainCameras(dataset.resolution).copy()
         std_name=viewpoint[0].image_name
         print(f"Rendering viewpoints with name {std_name}")
         for iteration in range(len(viewpoint)):
+            
+
+            gaussians.update_learning_rate(first_iter)
             viewpoint_cam = viewpoint[iteration]
             if viewpoint_cam.image_name != std_name:
                 continue
+            save_name=str(viewpoint_cam.kid).zfill(4)
             bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+            codedict={}
+            codedict['deformer_path']=viewpoint_cam.deformer_path
+            codedict['t']=viewpoint_cam.timecode
+            codedict['kid'] = viewpoint_cam.kid
+            gaussians.forward(codedict,update=True)
+            # render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+            # image = render_pkg["render"]
+            # image = image.clamp(0, 1)
+            # image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
+            # save_image = image_np
+            # save_image = save_image[:,:,[2,1,0]]
+            # print(os.path.join(dataset.model_path, foldername))
+            # cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
             with torch.no_grad():
-                codedict=viewpoint_cam.get_flame_params()
-                codedict['t']=viewpoint_cam.timecode
-                codedict['kid'] = viewpoint_cam.kid
-                gaussians.forward(codedict,update=True)
+                # codedict=viewpoint_cam.get_flame_params()
+                # codedict['t']=viewpoint_cam.timecode
+                # codedict['kid'] = viewpoint_cam.kid
+
                 
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
-                image = render_pkg["render"]
-                image = image.clamp(0, 1)
-                image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
-                save_image = image_np
-                save_image = save_image[:,:,[2,1,0]]
-                print(os.path.join(dataset.model_path, foldername))
-                os.makedirs(os.path.join(dataset.model_path, foldername), exist_ok=True)
-                save_name=str(viewpoint_cam.kid).zfill(4)
-                cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
                 gaussians.save_ply(os.path.join(dataset.model_path,foldername, f'{save_name}.ply'))
         scene.clearCameras(dataset.resolution) 
 
@@ -92,9 +102,12 @@ if __name__ == "__main__":
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
+    parser.add_argument("--step3_checkpoint", type=str, default = None) 
     args = parser.parse_args(sys.argv[1:])
     
     print("Optimizing " + args.model_path)
     # Initialize system state (RNG)
     safe_state(args.quiet)
+
+    torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args),args.start_checkpoint)

@@ -2,3 +2,7 @@ from .generate_deformation_graph import generate_deformation_graph
 from .deformation_utils import compute_deformation_transforms
 from .transform_gaussian import apply_deformation_to_gaussians
 from .deformation_graph import DeformationGraph
+from .deformation_utils import get_deformation_info_fixed_influences
+from .transform_gaussian import GaussianDeformer
+from .deformation_utils import DeformationTransforms
+from .deformation_utils import visualize_deformation_graph

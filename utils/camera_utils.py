@@ -43,8 +43,10 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
     #SUMO
     # 加载alpha图像
     alpha = None
-    if hasattr(cam_info, 'alpha_path') and cam_info.alpha_path and os.path.exists(cam_info.alpha_path):
+    if hasattr(cam_info, 'alpha_path') and cam_info.alpha_path and (os.path.exists(cam_info.alpha_path) or os.path.exists(cam_info.alpha_path.replace('.png','.jpg'))):
         try:
+            if not os.path.exists(cam_info.alpha_path):
+                cam_info.alpha_path=cam_info.alpha_path.replace('.png','.jpg')
             alpha_image = Image.open(cam_info.alpha_path)
             alpha=alpha_image
             # alpha = PILtoTensor(alpha_image)
@@ -105,6 +107,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
         except Exception as e:
             print(f"Warning: Failed to process FLAME parameters: {e}")
 
+    deformer_path=cam_info.deformer_path
 
     orig_w, orig_h = image.size
     if args.resolution in [1, 2, 4, 8]:
@@ -132,12 +135,16 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
                   image=image, invdepthmap=invdepthmap,
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device,
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test,
-                 # 添加新的参数
+                  # 添加新的参数
                   kid=cam_info.kid,timecode=cam_info.timecode,
+                  # flame参数
                   alpha=alpha, head_mask=head_mask, mouth_mask=mouth_mask,
                   shape_param=shape_param,
                   exp_param=exp_param, global_rotation=global_rotation, jaw_pose=jaw_pose, 
-                  neck_pose=neck_pose, eyes_pose=eyes_pose, transl=transl,scale_factor=scale_factor)
+                  neck_pose=neck_pose, eyes_pose=eyes_pose, transl=transl,scale_factor=scale_factor,
+                  #deformer参数
+                  deformer_path=deformer_path
+                  )
 def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_synthetic, is_test_dataset):
     camera_list = []
 

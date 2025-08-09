@@ -1,6 +1,7 @@
 import numpy as np
 from plyfile import PlyData, PlyElement
 from .deformation_graph import DeformationGraph
+from .deformation_utils import DeformationTransforms
 import json
 
 def apply_deformation_to_gaussians(dg, points, transforms):
@@ -283,50 +284,6 @@ class GaussianDeformer:
         PlyData([vertex_element]).write(output_path)
         print(f"变换后的PLY已保存: {output_path}")
 
-
-
-class DeformationTransforms:
-    """存储和管理从A到B的变形变换信息，使用NumPy数组 (纯CPU版本)"""
-    
-    def __init__(self):
-        self.transformations = []  # 每个控制节点的变换矩阵 (NumPy数组)
-        self.source_nodes = []     # 源网格中控制节点的索引
-    
-    def save(self, filename):
-        """保存变换参数到文件"""
-        try:
-            # 将NumPy数组转换为列表
-            data = {
-                'source_nodes': [int(node) for node in self.source_nodes],
-                'transformations': [matrix.tolist() if isinstance(matrix, np.ndarray) 
-                                   else matrix for matrix in self.transformations]
-            }
-            
-            with open(filename, 'w') as f:
-                json.dump(data, f, indent=2)
-                
-            print(f"变形变换已保存到文件: {filename}")
-            return True
-        except Exception as e:
-            print(f"保存变换参数时出错: {e}")
-            return False
-    
-    def load(self, filename):
-        """从文件加载变换参数到NumPy数组"""
-        try:
-            with open(filename, 'r') as f:
-                data = json.load(f)
-                
-            self.source_nodes = data['source_nodes']
-            # 转为NumPy数组
-            self.transformations = [np.array(matrix, dtype=np.float32) 
-                                  for matrix in data['transformations']]
-            
-            print(f"变形变换已从文件加载: {filename}")
-            return True
-        except Exception as e:
-            print(f"加载变换参数时出错: {e}")
-            return False
 
 # def process_gaussian_ply(input_gaussian_ply_path, output_gaussian_ply_path, deformation_graph_path, transform_path):
 #     """

@@ -28,13 +28,41 @@ from scene.deform_model import positional_encoding,MLP,SIREN
 from flame_pytorch import FLAME, parse_args
 import trimesh
 from deformation_graph import apply_deformation_to_gaussians,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
+from deformation_graph import get_deformation_info_fixed_influences
+from deformation_graph import DeformationTransforms
 from sklearn.neighbors import NearestNeighbors #SUMO
+from utils.general_utils import build_quaternion,weighted_quaternion_log_space
 import time
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
 except:
     pass
 
+from plyfile import PlyData, PlyElement
+def storePly(path, xyz):
+    # Define the dtype for the structured array
+    dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+            ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4')]
+    
+    normals = np.zeros_like(xyz)
+
+    elements = np.empty(xyz.shape[0], dtype=dtype)
+    attributes = np.concatenate((xyz, normals), axis=1)
+    elements[:] = list(map(tuple, attributes))
+
+    # Create the PlyData object and write to file
+    vertex_element = PlyElement.describe(elements, 'vertex')
+    ply_data = PlyData([vertex_element])
+    ply_data.write(path)
+
+def fetchPly(path):
+    plydata = PlyData.read(path)
+    vertices = plydata['vertex']
+    positions = np.vstack([vertices['x'], vertices['y'], vertices['z']]).T
+    one=np.ones_like(vertices['x'])*255
+    colors = np.vstack([one, one, one]).T / 255.0
+    normals = np.vstack([vertices['nx'], vertices['ny'], vertices['nz']]).T
+    return BasicPointCloud(points=positions, colors=colors, normals=normals)
 
 
 def quatProduct_batch(q1, q2):
@@ -44,7 +72,7 @@ def quatProduct_batch(q1, q2):
     v2 = torch.stack((q2[:,1], q2[:,2], q2[:,3]), dim=-1)
 
     r = r1 * r2 - torch.sum(v1*v2, dim=1) # [B]
-    v = r1.unsqueeze(1) * v2 + r2.unsqueeze(1) * v1 + torch.cross(v1, v2) #[B,3]
+    v = r1.unsqueeze(1) * v2 + r2.unsqueeze(1) * v1 + torch.linalg.cross(v1, v2) #[B,3]
     q = torch.stack((r, v[:,0], v[:,1], v[:,2]), dim=1)
 
     return q
@@ -76,7 +104,6 @@ class GaussianModel:
          
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
-        # self._scaling = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
@@ -106,41 +133,42 @@ class GaussianModel:
         )
 
         #SUMO
+        self.base_xyz=None
         self.dg=None
         self.temp_flame_vertices=None
-        flame_config = parse_args()
-        self.flame_model = FLAME(flame_config).to("cuda")
-        flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
-
+        self.vertex_deformer=None
+        # flame_config = parse_args()
+        # self.flame_model = FLAME(flame_config).to("cuda")
+        # flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
+        self.influ_nums=20
+        code_dim=1+(1+3+4)*self.influ_nums#t,w,q,t
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
         #self.xyz_mlp = MLP(input_dim=dim_encoded, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
         # 替换
-        self.xyz_mlp = SIREN(input_dim=dim_encoded+flame_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
+        self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
 
         #self.rot_mlp = SIREN(input_dim=dim_encoded, output_dim=4, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
-        self.rot_mlp = MLP(input_dim=dim_encoded+flame_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        self.rot_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
         #SUMO
-        self.scale_mlp=MLP(input_dim=dim_encoded+flame_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        self.scale_mlp=MLP(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
         #WDD
         self.inverse_deform_transforms={}
 
     #SUMO
-    def deform_init(self,codedict):
-        if not os.path.exists('model/deformation_graph.json'):
-            mesh_a=trimesh.load('model/FlameMesh.obj',process=False)
-            vertex = np.array(mesh_a.vertices)
-            faces = np.array(mesh_a.faces)
-            self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=2.5,node_nodes_num=8,v_nodes_num=12)
-            self.dg.save('model/deformation_graph.json')
-        else:
-            self.dg = DeformationGraph()
-            self.dg.load('model/deformation_graph.json')
-        self.canonical_flame_code=codedict
+    def deform_init(self,dg_path):
+        self.dg_path=dg_path
+        self.dg = DeformationGraph()
+        self.dg.load(dg_path)
+        if self.base_xyz is None:
+            self.base_xyz=self._xyz_0.detach().cpu().clone()
+            storePly("/home/momo/Desktop/data/0724/data/base_xyz.ply",self.base_xyz)
         if self.temp_flame_vertices is None:
             self.temp_flame_vertices = {}
+        if self.vertex_deformer is None:
+            self.vertex_deformer={}
     
     def generate_flame_geometry(self, codedict):
         shape_param = codedict['shape'].detach()
@@ -165,11 +193,9 @@ class GaussianModel:
         return geometry.squeeze(0)
         
         
-
     def capture(self):
         return (
             self.active_sh_degree,
-           
             self._features_dc,
             self._features_rest,
             # self._scaling,
@@ -186,8 +212,13 @@ class GaussianModel:
             self.xyz_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
-            self.canonical_flame_code,
-            self.temp_flame_vertices
+            # self.canonical_flame_code,
+            # self.temp_flame_vertices,
+            self.dg_path,
+            self.base_xyz,
+            self.vertex_deformer,
+            self.temp_flame_vertices,
+            self.inverse_deform_transforms
             
         )
     
@@ -210,11 +241,14 @@ class GaussianModel:
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
-        canonical_flame_code,
-        temp_flame_vertices
-        
+        dg_path,
+        self.base_xyz,
+        self.vertex_deformer,
+        self.temp_flame_vertices,
+        self.inverse_deform_transforms
         ) = model_args
-        self.training_setup(training_args)
+        # self.training_setup(training_args)
+        self.training_setup_freeze_x0(training_args)
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
@@ -224,9 +258,44 @@ class GaussianModel:
         self.rot_mlp.load_state_dict(rot_mlp_state_dict)
         self.scale_mlp.load_state_dict(scale_mlp_state_dict)
 
-        self.deform_init(canonical_flame_code)
-        self.canonical_flame_code=canonical_flame_code
-        # self.temp_flame_vertices=temp_flame_vertices
+        #SUMO
+        self.deform_init(dg_path)
+        self.base_xyz=self.base_xyz.cpu()
+    
+    def restore_from_keyframe(self, model_args, training_args):
+        (
+            self.active_sh_degree, 
+        self._features_dc, 
+        self._features_rest,
+        # self._scaling,  
+        self._opacity,
+        self.max_radii2D, 
+        xyz_gradient_accum, 
+        denom,
+        opt_dict, 
+        self.spatial_lr_scale,
+        #WDD
+        self._xyz_0, 
+        self._rotation_0,
+        self._scaling_0,  # 新增：恢复缩放参数
+        xyz_mlp_state_dict,
+        rot_mlp_state_dict,
+        scale_mlp_state_dict,
+        dg_path,
+        base_xyz,
+        vertex_deformer,
+        temp_flame_vertices,
+        inverse_deform_transforms
+        ) = model_args
+        # self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
+        # self.rot_mlp.load_state_dict(rot_mlp_state_dict)
+        # self.scale_mlp.load_state_dict(scale_mlp_state_dict)
+
+        self._xyz_t = self._xyz_0.clone().detach().to("cuda")
+        self._rotation_t=self._rotation_0.clone().detach().to("cuda")
+        self._scaling_t = self._scaling_0.clone().detach().to("cuda") 
+        self.training_setup_freeze_x0(training_args)
+        self.deform_init(dg_path)
 
 
     @property
@@ -278,16 +347,21 @@ class GaussianModel:
             self.active_sh_degree += 1
 
     def create_from_pcd(self, pcd : BasicPointCloud, cam_infos : int, spatial_lr_scale : float):
+        
+
         self.spatial_lr_scale = spatial_lr_scale
-        fused_point_cloud = torch.tensor(np.asarray(pcd.points)).float().cuda()
-        fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors)).float().cuda())
+        points=pcd.points
+        colors=pcd.colors
+        points,colors=_interpolation_densify(pcd.points, pcd.colors, 4.0)
+        fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
+        fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = fused_color
         features[:, 3:, 1:] = 0.0
 
         print("Number of points at initialisation : ", fused_point_cloud.shape[0])
 
-        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pcd.points)).float().cuda()), 0.0000001)
+        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
@@ -296,8 +370,6 @@ class GaussianModel:
 
 
         #WDD
-        # 初始化xyz_0和xyz_t
-        #self._xyz_0 = fused_point_cloud.detach().clone().to("cuda") # 固定坐标，不训练
         #训练的版本
         self._xyz_0 = nn.Parameter(fused_point_cloud.clone().detach().to("cuda"), requires_grad=True)
         self._xyz_t = fused_point_cloud.clone().detach().to("cuda")  # 纯数据副本
@@ -319,6 +391,35 @@ class GaussianModel:
         self.pretrained_exposures = None
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
+    
+    def _test_set_gaussian_from_pcd(self,pcd : BasicPointCloud):
+        points=pcd.points
+        colors=pcd.colors
+        points,colors=_interpolation_densify(pcd.points, pcd.colors, 4.0)
+        fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
+        fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = fused_color
+        features[:, 3:, 1:] = 0.0
+
+        print("Number of points at initialisation : ", fused_point_cloud.shape[0])
+
+        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+
+        #WDD
+        #训练的版本
+        self._xyz_0 = nn.Parameter(fused_point_cloud.clone().detach().to("cuda"), requires_grad=True)
+        self._xyz_t = fused_point_cloud.clone().detach().to("cuda")  # 纯数据副本
+
+
+        self._rotation_0 = nn.Parameter(rots.requires_grad_(True))
+        self._rotation_t = rots.clone().detach().to("cuda")  # 纯数据副本，不需要 grad
+
+        self._scaling_0 = nn.Parameter(scales.requires_grad_(True))
+        self._scaling_t = scales.clone().detach().to("cuda")  # 纯数据副本，不需要 grad
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
@@ -367,8 +468,6 @@ class GaussianModel:
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-
- 
 
         # 移除 xyz group
         l = [
@@ -449,63 +548,63 @@ class GaussianModel:
     # 前向传播函数，计算当前帧的动态点坐标
     def forward(self, codedict=None,update=False):
         encoded = self.xyz_encoder(self._xyz_0)    # 可能是 CPU
-        # 补 batch 维度
-        encoded = encoded.unsqueeze(0)  # (1, N, 51)
+        batch_size = self._xyz_0.shape[0]
 
-        #SUMO
-        shape_param = codedict['shape'].detach()
-        exp_param = codedict['exp'].detach()
-        global_rotation = codedict['global_rotation'].detach()
-        jaw_pose = codedict['jaw'].detach()
-        neck_pose=codedict['neck'].detach()
-        eyes_pose = codedict['eyes'].detach()
-        transl = codedict['transl'].detach()
-        scale_factor=codedict['scale_factor'].detach()
-        batch_size = shape_param.shape[0]
-        t= torch.as_tensor(codedict['t']).to(scale_factor.device).reshape(batch_size, 1) # time parameter
+        deformer_path=codedict['deformer_path']
+        kid=codedict['kid']
+        t=codedict['t']
 
-        pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
-        condition = torch.cat((t,exp_param, pose_params, neck_pose,eyes_pose,transl,scale_factor), dim=1)
+        if kid not in self.vertex_deformer or self._xyz_0.shape[0]!=self.vertex_deformer[kid].shape[0]:
 
-        condition = condition.unsqueeze(1).repeat(1, encoded.shape[1], 1)
+            transforms=DeformationTransforms()
+            transforms.load(deformer_path)
+            result=get_deformation_info_fixed_influences(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,self.influ_nums,'inverse_distance')
+            weights=torch.as_tensor(result['weights'],dtype=torch.float32).to('cuda')
+            RT=torch.as_tensor(result['RT'],dtype=torch.float32).to('cpu')
+            quaternions, translations = build_quaternion(RT[..., :3, :3]), RT[..., :3, 3]
 
-        encoded = torch.cat((encoded, condition), dim=2)
+            self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
+
+            deform_points=apply_deformation_to_gaussians(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
+            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
+
+            # test store deformed_ply
+            # path=os.path.join("/home/momo/Desktop/data/0724/data","temp"+str(kid).zfill(2)+".ply")
+            # storePly(path,deform_points['xyz'])
+
+            inv_trans_path=os.path.join(os.path.dirname(deformer_path),"inv_transforms.json")
+            inv_transform=DeformationTransforms()
+            inv_transform.load(inv_trans_path)
+            self.inverse_deform_transforms[kid]=inv_transform
+        
+        t= torch.as_tensor(codedict['t']).to(self._xyz_0.device).repeat(batch_size,1) # time parameter
+        
+
+        encoded = torch.cat([encoded, t,self.vertex_deformer[kid]], dim=-1)
 
         delta_xyz = self.xyz_mlp(encoded)  # 这时不会报错
         delta_xyz = delta_xyz.squeeze(0)
 
-        kid=codedict['kid'] 
-        if kid not in self.temp_flame_vertices or self.temp_flame_vertices[kid].shape[0]!=self._xyz_0.shape[0]:
-            base_geometry = self.generate_flame_geometry(self.canonical_flame_code)
-            current_geometry = self.generate_flame_geometry(codedict)
-            transforms=compute_deformation_transforms(self.dg,base_geometry.cpu().numpy(),current_geometry.cpu().numpy())
-            st=time.time()
-            deform_points=apply_deformation_to_gaussians(self.dg,self._xyz_0.detach().cpu().numpy(),transforms)
-            print(f"{self._xyz_0.shape[0]} points apply deformation at kid {kid},total time:{(time.time()-st)}s")
-            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
-
-
-        #WDD
-        if kid not in self.inverse_deform_transforms:
-            base_geometry = self.generate_flame_geometry(self.canonical_flame_code)
-            current_geometry = self.generate_flame_geometry(codedict)
-            
-            self.inverse_deform_transforms[kid]=compute_deformation_transforms(self.dg,current_geometry.cpu().numpy(),base_geometry.cpu().numpy())
-
-
-
         _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
 
-        
         delta_rot = self.rot_mlp(encoded)  # 计算旋转
         delta_rot = delta_rot.squeeze(0)
-    
-        #SUMO
+        # SUMO
         _rotation_t=quatProduct_batch(self._rotation_0, delta_rot)  # 使用四元数乘法组合旋转
-        
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
+        del delta_xyz, delta_rot, delta_scale
+        torch.cuda.empty_cache()
+
+        #SUMO TEST
+        # _xyz_t = self.temp_flame_vertices[kid]
+        # _rotation_t=self._rotation_0
+        # # # _scaling_t =self._scaling_0
+        # _scaling_t=self.scaling_inverse_activation(torch.ones_like(self._scaling_0)*0.02)
+        # _xyz_t=self._xyz_0
+        # _rotation_t=self._rotation_0
+        # _scaling_t=self._scaling_0
 
         if update:
             self._xyz_t=_xyz_t
@@ -513,7 +612,13 @@ class GaussianModel:
             self._scaling_t=_scaling_t
         return _xyz_t,_rotation_t,_scaling_t
 
+    # def forward(self,codedict=None,update=False):
+    #     deformer_path=codedict['deformer_path']
+    #     kid=codedict['kid']
+    #     t=codedict['t']
 
+    #     path=os.path.join("/home/momo/Desktop/data/0724/data","temp"+str(kid).zfill(2)+".ply")
+    #         # storePly(path,deform_points['xyz'])
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
@@ -681,6 +786,9 @@ class GaussianModel:
         self.max_radii2D = self.max_radii2D[valid_points_mask]
         self.tmp_radii = self.tmp_radii[valid_points_mask]
 
+        #SUMO
+        self.base_xyz=self.base_xyz[valid_points_mask.cpu()]
+
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -744,6 +852,10 @@ class GaussianModel:
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        #SUMO
+        # self.base_xyz=torch.cat((self.base_xyz,new_xyz_0.clone().detach().cpu()))
+        self.base_xyz=self._xyz_0.clone().detach().cpu()
 
 
     #WDD
@@ -894,3 +1006,121 @@ class GaussianModel:
         indices_j = indices_j.cuda()
 
         self._edge_indices = torch.stack((indices_i, indices_j), dim=0)
+    
+
+def _interpolation_densify(points, colors, density_factor):
+    """基于最近邻插值的稠密化"""
+    n_points = points.shape[0]
+    n_new_points = int(n_points * (density_factor - 1))
+    
+    if n_new_points <= 0:
+        return points, colors
+    
+    # 构建KNN
+    nbrs = NearestNeighbors(n_neighbors=5, algorithm='ball_tree').fit(points)
+    distances, indices = nbrs.kneighbors(points)
+    
+    new_points = []
+    new_colors = []
+    
+    # 在相邻点之间插值
+    for i in range(n_new_points):
+        idx = i % n_points
+        neighbor_idx = indices[idx, 1]  # 最近邻（排除自己）
+        
+        # 线性插值
+        t = np.random.uniform(0.2, 0.8)  # 插值参数
+        new_point = points[idx] * (1 - t) + points[neighbor_idx] * t
+        new_color = colors[idx] * (1 - t) + colors[neighbor_idx] * t
+        
+        new_points.append(new_point)
+        new_colors.append(new_color)
+    
+    if new_points:
+        densified_points = np.vstack([points, np.array(new_points)])
+        densified_colors = np.vstack([colors, np.array(new_colors)])
+    else:
+        densified_points, densified_colors = points, colors
+    
+    return densified_points, densified_colors
+
+def _random_sampling_densify(points, colors, density_factor, noise_scale):
+    """基于随机采样的稠密化"""
+    n_points = points.shape[0]
+    n_new_points = int(n_points * (density_factor - 1))
+    
+    if n_new_points <= 0:
+        return points, colors
+    
+    # 计算点云的平均距离作为噪声尺度参考
+    if points.shape[0] > 1:
+        distances = pdist(points)
+        avg_distance = np.mean(distances)
+        noise_std = avg_distance * noise_scale
+    else:
+        noise_std = noise_scale
+    
+    # 随机选择源点并添加噪声
+    source_indices = np.random.choice(n_points, n_new_points, replace=True)
+    
+    new_points = []
+    new_colors = []
+    
+    for idx in source_indices:
+        # 添加高斯噪声
+        noise = np.random.normal(0, noise_std, 3)
+        new_point = points[idx] + noise
+        new_color = colors[idx] + np.random.normal(0, 0.01, 3)  # 颜色也添加小幅噪声
+        new_color = np.clip(new_color, 0, 1)  # 确保颜色在有效范围内
+        
+        new_points.append(new_point)
+        new_colors.append(new_color)
+    
+    densified_points = np.vstack([points, np.array(new_points)])
+    densified_colors = np.vstack([colors, np.array(new_colors)])
+    
+    return densified_points, densified_colors
+
+def _adaptive_sampling_densify(points, colors, density_factor, noise_scale):
+    """基于局部密度的自适应稠密化"""
+    n_points = points.shape[0]
+    n_new_points = int(n_points * (density_factor - 1))
+    
+    if n_new_points <= 0 or n_points < 3:
+        return points, colors
+    
+    # 计算局部密度
+    nbrs = NearestNeighbors(n_neighbors=min(10, n_points), algorithm='ball_tree').fit(points)
+    distances, indices = nbrs.kneighbors(points)
+    
+    # 计算每个点的局部密度（平均到最近邻的距离）
+    local_densities = np.mean(distances[:, 1:], axis=1)  # 排除距离为0的自己
+    
+    # 密度越低，被选中的概率越高
+    weights = 1.0 / (local_densities + 1e-8)
+    weights = weights / np.sum(weights)
+    
+    # 根据权重选择源点
+    source_indices = np.random.choice(n_points, n_new_points, replace=True, p=weights)
+    
+    new_points = []
+    new_colors = []
+    
+    for idx in source_indices:
+        # 在局部邻域内采样
+        noise_std = local_densities[idx] * noise_scale
+        noise = np.random.normal(0, noise_std, 3)
+        new_point = points[idx] + noise
+        
+        # 颜色插值（从最近邻）
+        neighbor_idx = indices[idx, 1]
+        t = np.random.uniform(0.3, 0.7)
+        new_color = colors[idx] * (1 - t) + colors[neighbor_idx] * t
+        
+        new_points.append(new_point)
+        new_colors.append(new_color)
+    
+    densified_points = np.vstack([points, np.array(new_points)])
+    densified_colors = np.vstack([colors, np.array(new_colors)])
+    
+    return densified_points, densified_colors

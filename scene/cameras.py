@@ -23,7 +23,8 @@ class Camera(nn.Module):
                  train_test_exp = False, is_test_dataset = False, is_test_view = False,
                  # 添加新的参数
                  kid=0,timecode=0.0,alpha=None, head_mask=None, mouth_mask=None,
-                 shape_param=None,exp_param=None, global_rotation=None, jaw_pose=None, neck_pose=None, eyes_pose=None, transl=None,scale_factor=None
+                 shape_param=None,exp_param=None, global_rotation=None, jaw_pose=None, neck_pose=None, eyes_pose=None, transl=None,scale_factor=None,
+                 deformer_path=None
                  ):
         super(Camera, self).__init__()
 
@@ -215,6 +216,8 @@ class Camera(nn.Module):
             except Exception as e:
                 print(f"Warning: Failed to process scale_factor: {e}")
                 self.scale_factor = None
+        
+        self.deformer_path=deformer_path
         #end SUMO
 
         self.invdepthmap = None

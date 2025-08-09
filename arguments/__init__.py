@@ -94,9 +94,9 @@ class OptimizationParams(ParamGroup):
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 100
-        self.opacity_reset_interval = 1000
-        self.densify_from_iter = 500
-        self.densify_until_iter = 15_000
+        self.opacity_reset_interval = 500
+        self.densify_from_iter = 1000
+        self.densify_until_iter = 5_000
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
@@ -105,14 +105,14 @@ class OptimizationParams(ParamGroup):
 
         #SUMO
         self.lambda_temp = 10.0   # 时间正则化权重
-        self.alpha_temp = 10.0     # 时间正则化的自适应权重系数
+        self.alpha_temp = 100.0     # 时间正则化的自适应权重系数
         
         # 新增平滑正则化参数
         self.lambda_smooth = 5  # 平滑正则化权重
         self.alpha_smooth = 5.0    # 平滑正则化的自适应权重系数
         
         #新增最小scale
-        self.min_scale=0.01
+        self.min_scale=0.02
 
         super().__init__(parser, "Optimization Parameters")
 

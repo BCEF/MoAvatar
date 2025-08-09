@@ -1,6 +1,7 @@
 import numpy as np
 import json
-import os
+from scipy.spatial import cKDTree
+
 
 class DeformationTransforms:
     """存储和管理从A到B的变形变换信息"""
@@ -170,3 +171,172 @@ def apply_deformation(dg, vertices, transforms):
             deformed_vertices[i] = vertices[i]
     
     return deformed_vertices
+
+
+def get_deformation_info_fixed_influences(dg, points, transforms, num_influences=20, weight_method='inverse_distance'):
+    """
+    获取每个点的变形信息，每个点使用固定数量的影响节点
+    
+    Args:
+        dg: 变形图对象
+        points: 点位置数组 (N, 3)
+        transforms: DeformationTransforms对象，包含变换信息
+        num_influences: 每个点的影响节点数量 (默认20)
+        weight_method: 权重计算方法 ('inverse_distance', 'gaussian', 'linear_decay', 'uniform')
+    
+    Returns:
+        transform_info: 变换信息字典
+    """
+
+    
+    # 创建变换信息存储结构
+    transform_info = {
+        # 'influence_nodes': [],      # 每个点的影响节点索引列表
+        'weights': [],              # 每个点的权重列表
+        'RT':[]
+    }
+    
+    # 获取变换矩阵和控制节点信息
+    transformations = np.array(transforms.transformations)
+    node_positions = dg.node_positions
+    point_count = points.shape[0]
+    
+    # 确保影响节点数量不超过总节点数
+    actual_num_influences = min(num_influences, len(node_positions))
+    if actual_num_influences < num_influences:
+        print(f"警告: 请求的影响节点数 {num_influences} 超过总节点数 {len(node_positions)}，调整为 {actual_num_influences}")
+    
+    # 1. 使用KD树加速最近点查找
+    kdtree = cKDTree(node_positions)
+    
+    # 2. 批处理
+    batch_size = 20000
+    num_batches = (point_count + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, point_count)
+        batch_points = points[start_idx:end_idx]
+        batch_size_actual = end_idx - start_idx
+        
+        # 3. 查找每个点的最近邻节点
+        distances, node_indices = kdtree.query(batch_points, k=actual_num_influences)
+        
+        # 如果只有一个影响节点，确保distances和node_indices是2D数组
+        if actual_num_influences == 1:
+            distances = distances.reshape(-1, 1)
+            node_indices = node_indices.reshape(-1, 1)
+        
+        # 处理批次中的每个点
+        for local_idx in range(batch_size_actual):
+            point_pos = batch_points[local_idx]
+            point_distances = distances[local_idx]
+            point_node_indices = node_indices[local_idx]
+            
+            # 计算权重
+            weights = calculate_weights(point_distances, weight_method)
+            
+            # 收集变换矩阵
+            point_transforms = []
+            for node_idx in point_node_indices:
+                transform_matrix = transformations[node_idx]
+                point_transforms.append(transform_matrix.copy())
+            
+            # 保存变换信息
+            # transform_info['influence_nodes'].append(point_node_indices.tolist())
+            transform_info['weights'].append(weights.tolist())
+            transform_info['RT'].append(point_transforms)
+    
+    return transform_info
+
+
+def calculate_weights(distances, method='inverse_distance', sigma=None):
+    """
+    根据距离计算权重
+    
+    Args:
+        distances: 距离数组
+        method: 权重计算方法
+        sigma: 高斯权重的标准差参数 (仅在method='gaussian'时使用)
+    
+    Returns:
+        weights: 归一化后的权重数组
+    """
+    import numpy as np
+    
+    # 避免除零错误
+    distances = np.maximum(distances, 1e-8)
+    
+    if method == 'inverse_distance':
+        # 反比例权重: w = 1/d
+        weights = 1.0 / distances
+        
+    elif method == 'inverse_distance_squared':
+        # 反比例平方权重: w = 1/d^2
+        weights = 1.0 / (distances ** 2)
+        
+    elif method == 'gaussian':
+        # 高斯权重: w = exp(-d^2/(2*sigma^2))
+        if sigma is None:
+            sigma = np.mean(distances) / 2  # 自动设置sigma
+        weights = np.exp(-(distances ** 2) / (2 * sigma ** 2))
+        
+    elif method == 'linear_decay':
+        # 线性衰减权重: w = max(0, 1 - d/max_d)
+        max_dist = np.max(distances)
+        weights = np.maximum(0, 1.0 - distances / max_dist)
+        
+    elif method == 'exponential_decay':
+        # 指数衰减权重: w = exp(-d/scale)
+        scale = np.mean(distances)
+        weights = np.exp(-distances / scale)
+        
+    elif method == 'uniform':
+        # 均匀权重
+        weights = np.ones_like(distances)
+        
+    else:
+        raise ValueError(f"未知的权重计算方法: {method}")
+    
+    # 归一化权重
+    total_weight = np.sum(weights)
+    if total_weight > 0:
+        weights = weights / total_weight
+    else:
+        # 如果所有权重都是0，使用均匀权重
+        weights = np.ones_like(weights) / len(weights)
+    
+    return weights
+
+import matplotlib.pyplot as plt
+def visualize_deformation_graph(mesh, dg):
+    """可视化网格和变形图"""
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # 绘制网格边缘
+    edges = mesh.edges_unique
+    for edge in edges:
+        p1, p2 = mesh.vertices[edge]
+        ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], 'k-', alpha=0.1)
+    
+    # 绘制控制节点
+    ax.scatter(dg.node_positions[:, 0], 
+               dg.node_positions[:, 1], 
+               dg.node_positions[:, 2], 
+               c='r', s=50, label='Control Nodes')
+    
+    # 绘制前10个节点的连接
+    for i in range(min(10, len(dg.node_nodes))):
+        for j, _ in dg.node_nodes[i]:
+            p1 = dg.node_positions[i]
+            p2 = dg.node_positions[j]
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], [p1[2], p2[2]], 'b-', alpha=0.5)
+    
+    ax.set_title(f" ({len(dg.nodes)} )")
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.legend()
+    plt.tight_layout()
+    plt.show()

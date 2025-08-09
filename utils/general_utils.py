@@ -153,3 +153,104 @@ def quantize_by_decimal(value: float, decimals: int = 2) -> str:
     quantized = decimal_value.quantize(Decimal(quantize_pattern), rounding=ROUND_HALF_UP)
     
     return str(quantized)
+
+def build_quaternion(R):
+    """
+    将批量旋转矩阵转换为四元数 (支持任意批量维度)
+    
+    输入:
+        R: 形状为 (..., 3, 3) 的旋转矩阵张量
+    
+    输出:
+        q: 形状为 (..., 4) 的四元数张量 [w, x, y, z]
+    """
+    # 保存原始形状并展平
+    original_shape = R.shape[:-2]
+    R_flat = R.reshape(-1, 3, 3)
+    batch_size = R_flat.size(0)
+    
+    q = torch.zeros((batch_size, 4), device=R.device, dtype=R.dtype)
+    
+    # 计算矩阵的迹
+    trace = R_flat[:, 0, 0] + R_flat[:, 1, 1] + R_flat[:, 2, 2]
+    
+    # 情况1: trace > 0 (最稳定的情况)
+    mask1 = trace > 0
+    if mask1.any():
+        s = torch.sqrt(trace[mask1] + 1.0) * 2  # s = 4 * qw
+        q[mask1, 0] = 0.25 * s  # qw
+        q[mask1, 1] = (R_flat[mask1, 2, 1] - R_flat[mask1, 1, 2]) / s  # qx
+        q[mask1, 2] = (R_flat[mask1, 0, 2] - R_flat[mask1, 2, 0]) / s  # qy
+        q[mask1, 3] = (R_flat[mask1, 1, 0] - R_flat[mask1, 0, 1]) / s  # qz
+    
+    # 情况2: R[0,0] 是最大的对角元素
+    mask2 = (~mask1) & (R_flat[:, 0, 0] > R_flat[:, 1, 1]) & (R_flat[:, 0, 0] > R_flat[:, 2, 2])
+    if mask2.any():
+        s = torch.sqrt(1.0 + R_flat[mask2, 0, 0] - R_flat[mask2, 1, 1] - R_flat[mask2, 2, 2]) * 2
+        q[mask2, 0] = (R_flat[mask2, 2, 1] - R_flat[mask2, 1, 2]) / s  # qw
+        q[mask2, 1] = 0.25 * s  # qx
+        q[mask2, 2] = (R_flat[mask2, 0, 1] + R_flat[mask2, 1, 0]) / s  # qy
+        q[mask2, 3] = (R_flat[mask2, 0, 2] + R_flat[mask2, 2, 0]) / s  # qz
+    
+    # 情况3: R[1,1] 是最大的对角元素
+    mask3 = (~mask1) & (~mask2) & (R_flat[:, 1, 1] > R_flat[:, 2, 2])
+    if mask3.any():
+        s = torch.sqrt(1.0 + R_flat[mask3, 1, 1] - R_flat[mask3, 0, 0] - R_flat[mask3, 2, 2]) * 2
+        q[mask3, 0] = (R_flat[mask3, 0, 2] - R_flat[mask3, 2, 0]) / s  # qw
+        q[mask3, 1] = (R_flat[mask3, 0, 1] + R_flat[mask3, 1, 0]) / s  # qx
+        q[mask3, 2] = 0.25 * s  # qy
+        q[mask3, 3] = (R_flat[mask3, 1, 2] + R_flat[mask3, 2, 1]) / s  # qz
+    
+    # 情况4: R[2,2] 是最大的对角元素
+    mask4 = (~mask1) & (~mask2) & (~mask3)
+    if mask4.any():
+        s = torch.sqrt(1.0 + R_flat[mask4, 2, 2] - R_flat[mask4, 0, 0] - R_flat[mask4, 1, 1]) * 2
+        q[mask4, 0] = (R_flat[mask4, 1, 0] - R_flat[mask4, 0, 1]) / s  # qw
+        q[mask4, 1] = (R_flat[mask4, 0, 2] + R_flat[mask4, 2, 0]) / s  # qx
+        q[mask4, 2] = (R_flat[mask4, 1, 2] + R_flat[mask4, 2, 1]) / s  # qy
+        q[mask4, 3] = 0.25 * s  # qz
+    
+    # 确保四元数的实部为正（标准化约定）
+    negative_w = q[:, 0] < 0
+    q[negative_w] = -q[negative_w]
+    
+    # 恢复原始形状
+    q = q.reshape(*original_shape, 4)
+    
+    return q
+
+def weighted_quaternion_log_space(quaternions, weights):
+    """
+    在对数空间进行加权 (理论上更正确，但计算更复杂)
+    """
+    import torch.nn.functional as F
+    # 确保符号一致
+    quaternions = torch.where(quaternions[..., 0:1] >= 0, quaternions, -quaternions)
+    
+    # 映射到对数空间 (轴角表示)
+    w = quaternions[..., 0:1].clamp(-1, 1)
+    xyz = quaternions[..., 1:4]
+    
+    theta = 2 * torch.acos(torch.abs(w))
+    sin_half_theta = torch.sin(theta / 2)
+    safe_sin = torch.where(sin_half_theta.abs() < 1e-6, 
+                          torch.ones_like(sin_half_theta), sin_half_theta)
+    
+    # 对数映射
+    log_quaternions = (theta / 2) * (xyz / safe_sin)
+    
+    # 在对数空间加权
+    weighted_log = torch.sum(log_quaternions * weights.unsqueeze(-1), dim=1)
+    weight_sum = torch.sum(weights, dim=1, keepdim=True)
+    avg_log = weighted_log / weight_sum
+    
+    # 映射回四元数空间
+    angle = torch.norm(avg_log, dim=-1, keepdim=True)
+    safe_angle = torch.where(angle < 1e-6, torch.ones_like(angle) * 1e-6, angle)
+    
+    cos_half = torch.cos(safe_angle)
+    sin_half = torch.sin(safe_angle)
+    axis = avg_log / safe_angle
+    
+    result = torch.cat([cos_half, sin_half * axis], dim=-1)
+    return F.normalize(result, p=2, dim=-1)
