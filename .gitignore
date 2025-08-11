@@ -4,3 +4,4 @@ model/
 test
 test_main.py
 folder_reorganize_script.py
+*.bk
