@@ -47,3 +47,12 @@ To download the FLAME model, sign up and agree to the model license under MPI-IS
 ```
 ./fetch_FLAME.sh
 ```
+flame数据需要存储在model文件夹下
+```
+model
+├── flame_dynamic_embedding.npy
+├── flame_static_embedding.pkl
+├── FlameMesh.obj
+├── generic_model.pkl
+
+```
