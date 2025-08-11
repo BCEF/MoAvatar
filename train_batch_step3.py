@@ -13,7 +13,9 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render_abs as render #absGS版本
+# from gaussian_renderer import render #原版
+from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -47,7 +49,7 @@ from utils.loss_utils import E_temp,E_smooth
 def get_iterations_by_cycle(cycle, start_iterations):
     return max(1000,start_iterations-cycle*(start_iterations//20))
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,keyframe_checkpoint, debug_from):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -57,9 +59,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     gaussians = GaussianModel(dataset.sh_degree,opt.optimizer_type)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup_freeze_x0(opt)
+    if keyframe_checkpoint:
+        (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
+        gaussians.restore_from_keyframe(model_params, opt)
+
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
-        gaussians.restore(model_params, opt)
+        gaussians.restore_step3(model_params, opt)
     
     #Step3:knn
     gaussians.build_knn_graph(k=4)
@@ -361,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None) 
-
+    parser.add_argument("--keyframe_checkpoint", type=str, default = None) #step2的训练结果
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
@@ -374,6 +380,6 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint,args.keyframe_checkpoint, args.debug_from)
 
     print("\nTraining complete.")

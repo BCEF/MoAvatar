@@ -52,7 +52,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+        gaussians.restore_step3(model_params, opt)
     
     scene.loadTrainCameras(scene.getAvailableCamInfos()['train_cameras'],dataset.resolution)
     scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'],dataset.resolution)

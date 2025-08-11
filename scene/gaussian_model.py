@@ -172,7 +172,6 @@ class GaussianModel:
            
             self._features_dc,
             self._features_rest,
-            # self._scaling,
             self._opacity,
             self.max_radii2D,
             self.xyz_gradient_accum,
@@ -187,11 +186,76 @@ class GaussianModel:
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
             self.canonical_flame_code,
-            self.temp_flame_vertices
+            self.temp_flame_vertices,
+            self._edge_indices
             
         )
     
-    def restore(self, model_args, training_args):
+    def restore_step3(self, model_args, training_args):
+        (
+            self.active_sh_degree, 
+        self._features_dc, 
+        self._features_rest,  
+        self._opacity,
+        self.max_radii2D, 
+        xyz_gradient_accum, 
+        denom,
+        opt_dict, 
+        self.spatial_lr_scale,
+        #WDD
+        self._xyz_0, 
+        self._rotation_0,
+        self._scaling_0,  # 新增：恢复缩放参数
+        xyz_mlp_state_dict,
+        rot_mlp_state_dict,
+        scale_mlp_state_dict,
+        canonical_flame_code,
+        temp_flame_vertices,
+        self._edge_indices
+        
+        ) = model_args
+        self.training_setup_freeze_x0(training_args)
+        self.xyz_gradient_accum = xyz_gradient_accum
+        self.denom = denom
+        self.optimizer.load_state_dict(opt_dict)
+
+        #WDD
+        self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
+        self.rot_mlp.load_state_dict(rot_mlp_state_dict)
+        self.scale_mlp.load_state_dict(scale_mlp_state_dict)
+
+        self.deform_init(canonical_flame_code)
+        self.canonical_flame_code=canonical_flame_code
+        self.temp_flame_vertices=temp_flame_vertices
+    
+    def restore_from_keyframe(self, model_args, training_args):
+        (
+            self.active_sh_degree, 
+        self._features_dc, 
+        self._features_rest,  
+        self._opacity,
+        self.max_radii2D, 
+        xyz_gradient_accum, 
+        denom,
+        opt_dict, 
+        self.spatial_lr_scale,
+        #WDD
+        self._xyz_0, 
+        self._rotation_0,
+        self._scaling_0,  # 新增：恢复缩放参数
+        xyz_mlp_state_dict,
+        rot_mlp_state_dict,
+        scale_mlp_state_dict,
+        canonical_flame_code,
+        temp_flame_vertices,
+        _edge_indices
+        
+        ) = model_args
+        self.training_setup_freeze_x0(training_args)
+        self.deform_init(canonical_flame_code)
+        self.canonical_flame_code=canonical_flame_code
+    
+    def restore_step2(self, model_args, training_args):
         (
             self.active_sh_degree, 
         self._features_dc, 
@@ -211,7 +275,8 @@ class GaussianModel:
         rot_mlp_state_dict,
         scale_mlp_state_dict,
         canonical_flame_code,
-        temp_flame_vertices
+        self.temp_flame_vertices,
+        _edge_indices
         
         ) = model_args
         self.training_setup(training_args)
@@ -226,7 +291,7 @@ class GaussianModel:
 
         self.deform_init(canonical_flame_code)
         self.canonical_flame_code=canonical_flame_code
-        # self.temp_flame_vertices=temp_flame_vertices
+       
 
 
     @property
@@ -480,7 +545,7 @@ class GaussianModel:
             current_geometry = self.generate_flame_geometry(codedict)
             transforms=compute_deformation_transforms(self.dg,base_geometry.cpu().numpy(),current_geometry.cpu().numpy())
             st=time.time()
-            deform_points=apply_deformation_to_gaussians(self.dg,self._xyz_0.detach().cpu().numpy(),transforms)
+            deform_points=apply_deformation_to_gaussians(self.dg,self._xyz_0.detach().cpu().clone().numpy(),transforms)
             print(f"{self._xyz_0.shape[0]} points apply deformation at kid {kid},total time:{(time.time()-st)}s")
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
 
@@ -513,6 +578,11 @@ class GaussianModel:
             self._scaling_t=_scaling_t
         return _xyz_t,_rotation_t,_scaling_t
 
+    #SUMO
+    def forward_x0(self):
+        self._xyz_t=self._xyz_0
+        self._rotation_t=self._rotation_0
+        self._scaling_t=self._scaling_0
 
 
     def save_ply(self, path):
@@ -764,7 +834,7 @@ class GaussianModel:
         
         rots = build_rotation(self._rotation_t[selected_pts_mask]).repeat(N,1,1)
         new_xyz_t= torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_xyz_0=apply_deformation_to_gaussians(self.dg, new_xyz_t.cpu().numpy(), self.inverse_deform_transforms[kid])['xyz']
+        new_xyz_0=apply_deformation_to_gaussians(self.dg, new_xyz_t.cpu().clone().numpy(), self.inverse_deform_transforms[kid])['xyz']
         new_xyz_0 = torch.as_tensor(new_xyz_0).to(new_xyz_t.device)
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
         new_rotation = self._rotation_0[selected_pts_mask].repeat(N,1)

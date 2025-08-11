@@ -13,7 +13,9 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim,E_scale
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render_abs as render #absGS版本
+# from gaussian_renderer import render #原版
+from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -57,7 +59,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
-        gaussians.restore(model_params, opt)
+        gaussians.restore_step2(model_params, opt)
     
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum
@@ -118,7 +120,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         net_image_bytes = None
                         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                         if custom_cam != None:
-                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
                             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                         network_gui.send(net_image_bytes, dataset.source_path)
                         if do_training and ((iteration < batch_end_iter) or not keep_alive):
@@ -149,26 +151,38 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 bg = torch.rand((3), device="cuda") if opt.random_background else background
 
                 #SUMO
-                codedict=viewpoint_cam.get_flame_params()
-                codedict['t']=viewpoint_cam.timecode
-                codedict['kid'] = viewpoint_cam.kid
-                gaussians._xyz_t,gaussians._rotation_t,gaussians._scaling_t=gaussians.forward(codedict,update=True)
-
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
-                image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
                 gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha_mask is not None:
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
-                    image *= alpha_mask
-                    
-                    #SUMO
+                if viewpoint_cam.alpha is not None:
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
                         white_background_image = torch.ones_like(gt_image)  # 白色背景
                         gt_image = gt_image * alpha + white_background_image * (1 - alpha)
                     else:
                         gt_image*=alpha
+                
+                loss=0
+
+                #SUMO
+                codedict=viewpoint_cam.get_flame_params()
+                codedict['t']=viewpoint_cam.timecode
+                codedict['kid'] = viewpoint_cam.kid
+                if viewpoint_cam.kid==0:
+                    gaussians.forward_x0()
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                    image0=render_pkg["render"]
+                    loss+=l1_loss(image0, gt_image)*0.5
+
+                gaussians.forward(codedict,update=True)
+
+                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+
+                
+                if viewpoint_cam.alpha_mask is not None:
+                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                    image *= alpha_mask
+                    
+                
 
                 
                 Ll1 = l1_loss(image, gt_image)
@@ -177,7 +191,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 else:
                     ssim_value = ssim(image, gt_image)
 
-                loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+                loss += (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
                 Ll1depth_pure = 0.0
                 if depth_l1_weight(local_iteration) > 0 and viewpoint_cam.depth_reliable:
@@ -215,7 +229,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         progress_bar.close()
 
                     # 使用全局iteration进行报告和保存，但传递局部iteration给需要它的函数
-                    training_report(tb_writer, global_iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., SPARSE_ADAM_AVAILABLE, None, dataset.train_test_exp), dataset.train_test_exp)
+                    training_report(tb_writer, global_iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background, 1., False, None, dataset.train_test_exp), dataset.train_test_exp)
                     
                     # 使用全局iteration检查是否需要保存，避免文件覆盖
                     if (global_iteration in saving_iterations):

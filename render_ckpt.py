@@ -2,7 +2,9 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render_abs as render #absGS版本
+# from gaussian_renderer import render #原版
+from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -22,8 +24,7 @@ def training(dataset, opt, pipe,checkpoint_path):
     scene = Scene(dataset, gaussians,shuffle=False)
     
     if checkpoint:
-        gaussians.restore(checkpoint, opt)
-        gaussians.freeze_points_opt(scene.model_path)
+        gaussians.restore_step3(checkpoint, opt)
 
     gaussians.training_setup(opt)    
     
