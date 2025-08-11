@@ -60,7 +60,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
-        gaussians.restore_from_keyframe(model_params,opt)
+        gaussians.restore_step2(model_params,opt)
     
     #Step3:knn
     gaussians.build_knn_graph(k=4)
@@ -95,14 +95,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if batch_start==batch_end:
                 continue
             print(f"Loading batch {batch_idx + 1}/{num_batches}: cameras {batch_start} to {batch_end-1}")
-            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.resolution)
-            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.resolution)
+            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.rscale)
+            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.rscale)
 
             if gaussians.vertex_deformer is None or gaussians.temp_flame_vertices is None:
                 dg_path=os.path.join(dataset.source_path,'deformation_graph.json')
                 gaussians.deform_init(dg_path)
 
-            viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+            viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
             ema_loss_for_log = 0.0
             ema_Ll1depth_for_log = 0.0
@@ -128,7 +128,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         net_image_bytes = None
                         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                         if custom_cam != None:
-                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
                             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                         network_gui.send(net_image_bytes, dataset.source_path)
                         if do_training and ((iteration < batch_end_iter) or not keep_alive):
@@ -146,7 +146,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.oneupSHdegree()
 
                 if not viewpoint_stack:
-                    viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+                    viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
                     viewpoint_indices = list(range(len(viewpoint_stack)))
                 
                 rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -159,20 +159,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 bg = torch.rand((3), device="cuda") if opt.random_background else background
 
                 #SUMO
-                codedict={}
-                codedict['deformer_path']=viewpoint_cam.deformer_path
-                codedict['t']=viewpoint_cam.timecode
-                codedict['kid'] = viewpoint_cam.kid
-                gaussians.forward(codedict,update=True)
-
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)
-                image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
                 gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha_mask is not None:
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
-                    image *= alpha_mask
-                
                 if viewpoint_cam.alpha is not None:
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
@@ -182,6 +169,28 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     else:
                         gt_image*=alpha
 
+                loss=0
+                
+                codedict={}
+                codedict['deformer_path']=viewpoint_cam.deformer_path
+                codedict['t']=viewpoint_cam.timecode
+                codedict['kid'] = viewpoint_cam.kid
+                
+
+                if viewpoint_cam.kid==0:
+                    gaussians.forward_x0()
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                    image0=render_pkg["render"]
+                    loss+=l1_loss(image0, gt_image)*0.5
+
+
+                gaussians.forward(codedict,update=True)
+                render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+                
+                if viewpoint_cam.alpha_mask is not None:
+                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                    image *= alpha_mask
                 
                 Ll1 = l1_loss(image, gt_image)
                 if FUSED_SSIM_AVAILABLE:
@@ -189,7 +198,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 else:
                     ssim_value = ssim(image, gt_image)
 
-                loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
+                loss += (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
 
                 Ll1depth_pure = 0.0
                 if depth_l1_weight(local_iteration) > 0 and viewpoint_cam.depth_reliable:
@@ -269,7 +278,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             
             # del gaussians.vertex_deformer
             # del gaussians.temp_flame_vertices
-            scene.clearCameras(dataset.resolution)
+            scene.clearCameras(dataset.rscale)
             # gaussians.vertex_deformer={}
             # gaussians.temp_flame_vertices={}
             
@@ -349,10 +358,10 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 10_000,30_000, 300_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 10_000,20_000,30_000, 300_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
-    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 10_000,30_000, 300_000])
+    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 10_000,20_000,30_000, 300_000])
     parser.add_argument("--start_checkpoint", type=str, default = None) 
     parser.add_argument("--step3_checkpoint", type=str, default = None) 
 
@@ -360,7 +369,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     #关键帧数量少，放在一个batch中训练，训练次数多一些
-    args.iterations=20000
+    args.iterations=30000
     args.batchnum=1
     args.looptimes=100
     

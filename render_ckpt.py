@@ -25,18 +25,19 @@ def training(dataset, opt, pipe,checkpoint_path):
 
     if checkpoint_path:
         (model_params, first_iter) = torch.load(checkpoint_path,weights_only=False,map_location="cuda")
-        # gaussians.restore(model_params, opt)
-        gaussians.restore_from_keyframe(model_params,opt)
+        gaussians.restore_step3(model_params, opt)
+        # gaussians.restore_from_keyframe(model_params,opt)
+        # gaussians.restore_step2(model_params,opt)
 
     torch.cuda.empty_cache()
 
-    bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
+    bg_color = [0, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum
     batch_size = max(1, len(all_train_cameras) // num_batches)
-
+    std_name=None
     for batch_idx in range(num_batches+1):
         batch_start = batch_idx * batch_size
         if batch_idx == num_batches:
@@ -50,7 +51,8 @@ def training(dataset, opt, pipe,checkpoint_path):
 
 
         viewpoint = scene.getTrainCameras(dataset.resolution).copy()
-        std_name=viewpoint[0].image_name
+        if std_name is None:
+            std_name=viewpoint[0].image_name
         print(f"Rendering viewpoints with name {std_name}")
         for iteration in range(len(viewpoint)):
             
@@ -59,7 +61,7 @@ def training(dataset, opt, pipe,checkpoint_path):
             viewpoint_cam = viewpoint[iteration]
             if viewpoint_cam.image_name != std_name:
                 continue
-            save_name=str(viewpoint_cam.kid).zfill(4)
+            save_name=str(viewpoint_cam.kid).zfill(4)#+'_'+viewpoint_cam.image_name
             bg = torch.rand((3), device="cuda") if opt.random_background else background
 
             codedict={}
@@ -67,21 +69,21 @@ def training(dataset, opt, pipe,checkpoint_path):
             codedict['t']=viewpoint_cam.timecode
             codedict['kid'] = viewpoint_cam.kid
             gaussians.forward(codedict,update=True)
-            # render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
-            # image = render_pkg["render"]
-            # image = image.clamp(0, 1)
-            # image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
-            # save_image = image_np
-            # save_image = save_image[:,:,[2,1,0]]
-            # print(os.path.join(dataset.model_path, foldername))
-            # cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+            image = render_pkg["render"]
+            image = image.clamp(0, 1)
+            image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
+            save_image = image_np
+            save_image = save_image[:,:,[2,1,0]]
+            print(os.path.join(dataset.model_path, foldername))
+            cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
             with torch.no_grad():
                 # codedict=viewpoint_cam.get_flame_params()
                 # codedict['t']=viewpoint_cam.timecode
                 # codedict['kid'] = viewpoint_cam.kid
 
                 
-                gaussians.save_ply(os.path.join(dataset.model_path,foldername, f'{save_name}.ply'))
+                gaussians.save_ply(os.path.join(dataset.model_path,foldername, str(viewpoint_cam.kid).zfill(4)+'.ply'))
         scene.clearCameras(dataset.resolution) 
 
 
@@ -110,4 +112,4 @@ if __name__ == "__main__":
     safe_state(args.quiet)
 
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args),args.start_checkpoint)
+    training(lp.extract(args), op.extract(args), pp.extract(args),args.step3_checkpoint)

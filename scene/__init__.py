@@ -274,6 +274,7 @@ class Scene:
         加载所有相机（训练和测试）
         :param resolution_scales: 分辨率尺度列表，如果为None则使用初始化时的尺度
         """
+        resolution_scales=None #SUMO 强制将scale设为1.0 临时修复
         if resolution_scales is None:
             resolution_scales = self.resolution_scales
             

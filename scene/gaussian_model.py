@@ -218,11 +218,12 @@ class GaussianModel:
             self.base_xyz,
             self.vertex_deformer,
             self.temp_flame_vertices,
-            self.inverse_deform_transforms
+            self.inverse_deform_transforms,
+            self._edge_indices
             
         )
     
-    def restore(self, model_args, training_args):
+    def restore_step3(self, model_args, training_args):
         (
             self.active_sh_degree, 
         self._features_dc, 
@@ -245,10 +246,52 @@ class GaussianModel:
         self.base_xyz,
         self.vertex_deformer,
         self.temp_flame_vertices,
-        self.inverse_deform_transforms
+        self.inverse_deform_transforms,
+        self._edge_indices
         ) = model_args
         # self.training_setup(training_args)
         self.training_setup_freeze_x0(training_args)
+        self.xyz_gradient_accum = xyz_gradient_accum
+        self.denom = denom
+        self.optimizer.load_state_dict(opt_dict)
+
+        #WDD
+        self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
+        self.rot_mlp.load_state_dict(rot_mlp_state_dict)
+        self.scale_mlp.load_state_dict(scale_mlp_state_dict)
+
+        #SUMO
+        self.deform_init(dg_path)
+        self.base_xyz=self.base_xyz.cpu()
+    
+    def restore_step2(self, model_args, training_args):
+        (
+            self.active_sh_degree, 
+        self._features_dc, 
+        self._features_rest,
+        # self._scaling,  
+        self._opacity,
+        self.max_radii2D, 
+        xyz_gradient_accum, 
+        denom,
+        opt_dict, 
+        self.spatial_lr_scale,
+        #WDD
+        self._xyz_0, 
+        self._rotation_0,
+        self._scaling_0,  # 新增：恢复缩放参数
+        xyz_mlp_state_dict,
+        rot_mlp_state_dict,
+        scale_mlp_state_dict,
+        dg_path,
+        self.base_xyz,
+        self.vertex_deformer,
+        self.temp_flame_vertices,
+        self.inverse_deform_transforms,
+        self._edge_indices
+        ) = model_args
+        self.training_setup(training_args)
+        # self.training_setup_freeze_x0(training_args)
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
@@ -269,15 +312,15 @@ class GaussianModel:
         self._features_rest,
         # self._scaling,  
         self._opacity,
-        self.max_radii2D, 
+        max_radii2D, 
         xyz_gradient_accum, 
         denom,
         opt_dict, 
-        self.spatial_lr_scale,
+        spatial_lr_scale,
         #WDD
         self._xyz_0, 
         self._rotation_0,
-        self._scaling_0,  # 新增：恢复缩放参数
+        self._scaling_0, 
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
@@ -285,7 +328,8 @@ class GaussianModel:
         base_xyz,
         vertex_deformer,
         temp_flame_vertices,
-        inverse_deform_transforms
+        inverse_deform_transforms,
+        _edge_indices
         ) = model_args
         # self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
         # self.rot_mlp.load_state_dict(rot_mlp_state_dict)
@@ -294,6 +338,7 @@ class GaussianModel:
         self._xyz_t = self._xyz_0.clone().detach().to("cuda")
         self._rotation_t=self._rotation_0.clone().detach().to("cuda")
         self._scaling_t = self._scaling_0.clone().detach().to("cuda") 
+        
         self.training_setup_freeze_x0(training_args)
         self.deform_init(dg_path)
 
@@ -612,13 +657,10 @@ class GaussianModel:
             self._scaling_t=_scaling_t
         return _xyz_t,_rotation_t,_scaling_t
 
-    # def forward(self,codedict=None,update=False):
-    #     deformer_path=codedict['deformer_path']
-    #     kid=codedict['kid']
-    #     t=codedict['t']
-
-    #     path=os.path.join("/home/momo/Desktop/data/0724/data","temp"+str(kid).zfill(2)+".ply")
-    #         # storePly(path,deform_points['xyz'])
+    def forward_x0(self):
+        self._xyz_t=self._xyz_0
+        self._rotation_t=self._rotation_0
+        self._scaling_t=self._scaling_0
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))

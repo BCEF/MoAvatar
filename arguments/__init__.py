@@ -58,6 +58,7 @@ class ModelParams(ParamGroup):
         self.eval = False
 
         #SUMO
+        self.rscale=1.0 #1/（rscale*resolution）是最终的缩放比例
         self.batchnum=10 #batch数量，将所有相机分成batchnum块训练
         self.looptimes=100 #所有batch训练一次为一个loop
 
@@ -96,7 +97,7 @@ class OptimizationParams(ParamGroup):
         self.densification_interval = 100
         self.opacity_reset_interval = 500
         self.densify_from_iter = 1000
-        self.densify_until_iter = 5_000
+        self.densify_until_iter = 9_000
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01

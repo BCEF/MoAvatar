@@ -7,3 +7,4 @@ model/deformation_graph.json
 model/FlameMesh.obj
 model/flame_static_embedding.pkl
 folder_reorganize_script.py
+bk
