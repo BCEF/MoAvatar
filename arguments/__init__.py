@@ -62,6 +62,9 @@ class ModelParams(ParamGroup):
         self.batchnum=10 #batch数量，将所有相机分成batchnum块训练
         self.looptimes=100 #所有batch训练一次为一个loop
 
+        self.use_init_ply=True
+        self.init_ply_path="GaussianInit.ply"
+
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -95,7 +98,7 @@ class OptimizationParams(ParamGroup):
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 100
-        self.opacity_reset_interval = 500
+        self.opacity_reset_interval = 1150
         self.densify_from_iter = 1000
         self.densify_until_iter = 9_000
         self.densify_grad_threshold = 0.0002

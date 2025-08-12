@@ -369,7 +369,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     #关键帧数量少，放在一个batch中训练，训练次数多一些
-    args.iterations=30000
+    args.iterations=20000
     args.batchnum=1
     args.looptimes=100
     

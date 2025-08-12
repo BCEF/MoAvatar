@@ -42,7 +42,7 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 #SUMO
-from utils.loss_utils import E_temp,E_smooth
+from utils.loss_utils import E_temp,E_smooth,E_scale
 import cv2
 #SUMO
 def get_iterations_by_cycle(cycle, start_iterations):
@@ -397,7 +397,9 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     args.iterations=1000
-    args.random_background=True
+    args.batchnum=50
+    args.looptimes=100
+    # args.random_background=True
     print("Optimizing " + args.model_path)
 
     safe_state(args.quiet)

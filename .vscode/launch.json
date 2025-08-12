@@ -13,12 +13,13 @@
             "console": "integratedTerminal",
             "args": [
                         "--resolution","2",
-                        "-w",
-                        // "-s","/home/momo/Desktop/data/0724/data2560/",
-                        "-s","/home/momo/Desktop/data/0724/data/",
-                        "--model_path","/home/momo/Desktop/data/0724/fixflame_output07_abs/",
-                        // "--start_checkpoint","/home/momo/Desktop/data/0724/fixflame_output07_abs/chkpnt30000.pth",
-                        "--step3_checkpoint","/home/momo/Desktop/data/0724/fixflame_output07_abs/chkpnt151000.pth"
+                        // "-w",
+                        // "-s","/home/momo/Desktop/data/ali/cc01data/keyframes/",
+                        "-s","/home/momo/Desktop/data/ali/cc01data/frames/",
+                        "--model_path","/home/momo/Desktop/data/ali/cc01data/output/02_frames",
+                        "--start_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/02/chkpnt20000.pth",
+                        // "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/01_frames/chkpnt320000.pth",
+                        // "--init_ply_path","/home/momo/Desktop/data/ali/cc01data/GaussianInit_speedy.ply"
                     ],
         }
     ]

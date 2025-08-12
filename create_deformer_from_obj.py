@@ -288,8 +288,10 @@ from deformation_graph import visualize_deformation_graph
 import trimesh
 
 if __name__=='__main__':
-    data_folder="/home/momo/Desktop/data/zd_data"
-    obj_folder="/home/momo/Desktop/zd_data/obj"
+    root_folder="/home/momo/Desktop/data/ali/cc01data/"
+    data_folder="/home/momo/Desktop/data/ali/cc01data/frames"
+    obj_folder="/home/momo/Desktop/data/ali/cc01data/obj/"
+    prefix='Frame0'
     root_path = Path(data_folder)
     
     # 检查根文件夹是否存在
@@ -301,10 +303,12 @@ if __name__=='__main__':
     subfolders = [f for f in root_path.iterdir() if f.is_dir() and 'sparse' not in f.name]
     subfolders.sort()
 
-    base_path=os.path.join(obj_folder,'Frame'+subfolders[0].name+'.obj')
+    base_path=os.path.join(obj_folder,prefix+subfolders[0].name+'.obj')
     base_vertex,faces=read_obj(base_path)
+    print(base_path)
     if not os.path.exists(os.path.join(data_folder,'deformation_graph.json')):
-        dg=generate_deformation_graph(base_vertex,faces,node_num=200,radius_coef=5,node_nodes_num=16,v_nodes_num=12)
+        # dg=generate_deformation_graph(base_vertex,faces,node_num=200,radius_coef=5,node_nodes_num=16,v_nodes_num=12)
+        dg=generate_deformation_graph(base_vertex,faces,node_num=200,radius_coef=5,node_nodes_num=8,v_nodes_num=12)
         dg.save(os.path.join(data_folder,'deformation_graph.json'))
         mesh=trimesh.load(base_path)
         visualize_deformation_graph(mesh,dg)
@@ -313,15 +317,19 @@ if __name__=='__main__':
         dg.load(os.path.join(data_folder,'deformation_graph.json'))
     # base_vertex=torch.as_tensor(base_vertex,dtype=torch.float32)
     for subfolder in subfolders:
-        current_vertex,_=read_obj(os.path.join(obj_folder,'Frame'+subfolder.name+'.obj'))
+        base_vertex,faces=read_obj(base_path)
+        current_vertex,_=read_obj(os.path.join(obj_folder,prefix+subfolder.name+'.obj'))
         # current_vertex=torch.as_tensor(current_vertex,dtype=torch.float32)
 
         transforms=compute_deformation_transforms(dg,base_vertex,current_vertex)
         transforms.save(os.path.join(data_folder,subfolder.name,'transforms.json'))
 
+        base_vertex,faces=read_obj(base_path)
+        current_vertex,_=read_obj(os.path.join(obj_folder,prefix+subfolder.name+'.obj'))
         inv_transforms=compute_deformation_transforms(dg,current_vertex,base_vertex)
         inv_transforms.save(os.path.join(data_folder,subfolder.name,'inv_transforms.json'))
 
+        base_vertex,faces=read_obj(base_path)
         deform_points=apply_deformation_to_gaussians(dg,base_vertex,transforms)
-        os.makedirs(os.path.join("/home/momo/Desktop/data/","zd_deform"),exist_ok=True)
-        save_obj(os.path.join("/home/momo/Desktop/data/","zd_deform",subfolder.name+'.obj'),deform_points['xyz'],faces)
+        os.makedirs(os.path.join(root_folder,"test"),exist_ok=True)
+        save_obj(os.path.join(root_folder,"test",subfolder.name+'.obj'),deform_points['xyz'],faces)

@@ -157,42 +157,20 @@ class GaussianModel:
         #WDD
         self.inverse_deform_transforms={}
 
-    #SUMO
+    #SUMO 初始化变形图相关参数
     def deform_init(self,dg_path):
         self.dg_path=dg_path
         self.dg = DeformationGraph()
         self.dg.load(dg_path)
         if self.base_xyz is None:
             self.base_xyz=self._xyz_0.detach().cpu().clone()
-            storePly("/home/momo/Desktop/data/0724/data/base_xyz.ply",self.base_xyz)
+            # storePly("/home/momo/Desktop/data/0724/data/base_xyz.ply",self.base_xyz)
         if self.temp_flame_vertices is None:
             self.temp_flame_vertices = {}
         if self.vertex_deformer is None:
             self.vertex_deformer={}
-    
-    def generate_flame_geometry(self, codedict):
-        shape_param = codedict['shape'].detach()
-        exp_param = codedict['exp'].detach()
-        global_rotation = codedict['global_rotation'].detach()
-        jaw_pose = codedict['jaw'].detach()
-        neck_pose=codedict['neck'].detach()
-        eyes_pose = codedict['eyes'].detach()
-        transl = codedict['transl'].detach()
-        scale_factor=codedict['scale_factor'].detach()
-
-        pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
-        geometry = self.flame_model.forward_geo(
-            shape_params=shape_param,
-            expression_params=exp_param,
-            pose_params=pose_params,
-            neck_pose=neck_pose,
-            eye_pose=eyes_pose,
-            transl=transl,
-            scale_factor= scale_factor
-        )
-        return geometry.squeeze(0)
-        
-        
+      
+    #获取所有参数
     def capture(self):
         return (
             self.active_sh_degree,
@@ -223,6 +201,7 @@ class GaussianModel:
             
         )
     
+    #在step3恢复参数，不优化标准空间，加载变形图各种参数
     def restore_step3(self, model_args, training_args):
         (
             self.active_sh_degree, 
@@ -249,7 +228,6 @@ class GaussianModel:
         self.inverse_deform_transforms,
         self._edge_indices
         ) = model_args
-        # self.training_setup(training_args)
         self.training_setup_freeze_x0(training_args)
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
@@ -264,6 +242,7 @@ class GaussianModel:
         self.deform_init(dg_path)
         self.base_xyz=self.base_xyz.cpu()
     
+    #在step2恢复参数，优化标准空间
     def restore_step2(self, model_args, training_args):
         (
             self.active_sh_degree, 
@@ -291,7 +270,7 @@ class GaussianModel:
         self._edge_indices
         ) = model_args
         self.training_setup(training_args)
-        # self.training_setup_freeze_x0(training_args)
+
         self.xyz_gradient_accum = xyz_gradient_accum
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
@@ -305,6 +284,7 @@ class GaussianModel:
         self.deform_init(dg_path)
         self.base_xyz=self.base_xyz.cpu()
     
+    #在step3恢复参数，加载step2的训练结果，只加载标准空间
     def restore_from_keyframe(self, model_args, training_args):
         (
             self.active_sh_degree, 
@@ -342,6 +322,52 @@ class GaussianModel:
         self.training_setup_freeze_x0(training_args)
         self.deform_init(dg_path)
 
+    #获取必要的参数，不保存缓存
+    def capture_render(self):
+        return (
+            self.active_sh_degree,
+            self._features_dc,
+            self._features_rest,
+            self._opacity,
+            self._xyz_0,
+            self._rotation_0, 
+            self._scaling_0,  
+            self.xyz_mlp.state_dict(),   # 新增：保存 MLP 权重
+            self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
+            self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
+            self.dg_path,
+            self.base_xyz,
+            # self.vertex_deformer,
+            self.temp_flame_vertices  
+        )
+    
+    #推理时调用的恢复参数
+    def restore_render(self, model_args):
+        (
+            self.active_sh_degree, 
+        self._features_dc, 
+        self._features_rest, 
+        self._opacity,
+        self._xyz_0, 
+        self._rotation_0,
+        self._scaling_0,  
+        xyz_mlp_state_dict,
+        rot_mlp_state_dict,
+        scale_mlp_state_dict,
+        self.dg_path,
+        self.base_xyz,
+        # self.vertex_deformer,
+        self.temp_flame_vertices,
+        
+        ) = model_args
+        #WDD
+        self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
+        self.rot_mlp.load_state_dict(rot_mlp_state_dict)
+        self.scale_mlp.load_state_dict(scale_mlp_state_dict)
+        self.xyz_mlp.eval()
+        self.rot_mlp.eval()
+        self.scale_mlp.eval()
+        self.vertex_deformer={}
 
     @property
     def get_scaling(self):
@@ -437,35 +463,7 @@ class GaussianModel:
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
     
-    def _test_set_gaussian_from_pcd(self,pcd : BasicPointCloud):
-        points=pcd.points
-        colors=pcd.colors
-        points,colors=_interpolation_densify(pcd.points, pcd.colors, 4.0)
-        fused_point_cloud = torch.tensor(np.asarray(points)).float().cuda()
-        fused_color = RGB2SH(torch.tensor(np.asarray(colors)).float().cuda())
-        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
-        features[:, :3, 0 ] = fused_color
-        features[:, 3:, 1:] = 0.0
-
-        print("Number of points at initialisation : ", fused_point_cloud.shape[0])
-
-        dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(points)).float().cuda()), 0.0000001)
-        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
-        rots[:, 0] = 1
-
-        #WDD
-        #训练的版本
-        self._xyz_0 = nn.Parameter(fused_point_cloud.clone().detach().to("cuda"), requires_grad=True)
-        self._xyz_t = fused_point_cloud.clone().detach().to("cuda")  # 纯数据副本
-
-
-        self._rotation_0 = nn.Parameter(rots.requires_grad_(True))
-        self._rotation_t = rots.clone().detach().to("cuda")  # 纯数据副本，不需要 grad
-
-        self._scaling_0 = nn.Parameter(scales.requires_grad_(True))
-        self._scaling_t = scales.clone().detach().to("cuda")  # 纯数据副本，不需要 grad
-
+    #所有参数都优化
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -509,6 +507,7 @@ class GaussianModel:
                                                         lr_delay_mult=training_args.exposure_lr_delay_mult,
                                                         max_steps=training_args.iterations)
     
+    #不优化标准空间
     def training_setup_freeze_x0(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -604,8 +603,8 @@ class GaussianModel:
             transforms=DeformationTransforms()
             transforms.load(deformer_path)
             result=get_deformation_info_fixed_influences(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,self.influ_nums,'inverse_distance')
-            weights=torch.as_tensor(result['weights'],dtype=torch.float32).to('cuda')
-            RT=torch.as_tensor(result['RT'],dtype=torch.float32).to('cpu')
+            weights=torch.as_tensor(np.array(result['weights']),dtype=torch.float32).to('cuda')
+            RT=torch.as_tensor(np.array(result['RT']),dtype=torch.float32).to('cpu')
             quaternions, translations = build_quaternion(RT[..., :3, :3]), RT[..., :3, 3]
 
             self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
@@ -642,14 +641,6 @@ class GaussianModel:
         del delta_xyz, delta_rot, delta_scale
         torch.cuda.empty_cache()
 
-        #SUMO TEST
-        # _xyz_t = self.temp_flame_vertices[kid]
-        # _rotation_t=self._rotation_0
-        # # # _scaling_t =self._scaling_0
-        # _scaling_t=self.scaling_inverse_activation(torch.ones_like(self._scaling_0)*0.02)
-        # _xyz_t=self._xyz_0
-        # _rotation_t=self._rotation_0
-        # _scaling_t=self._scaling_0
 
         if update:
             self._xyz_t=_xyz_t
@@ -657,10 +648,54 @@ class GaussianModel:
             self._scaling_t=_scaling_t
         return _xyz_t,_rotation_t,_scaling_t
 
+    #只使用标准空间的xyz
     def forward_x0(self):
         self._xyz_t=self._xyz_0
         self._rotation_t=self._rotation_0
         self._scaling_t=self._scaling_0
+
+    #推理时调用的前向渲染函数
+    def forward_render(self, codedict=None):
+        encoded = self.xyz_encoder(self._xyz_0)    # 可能是 CPU
+        batch_size = self._xyz_0.shape[0]
+
+        deformer_path=codedict['deformer_path']
+        kid=codedict['kid']
+        t=codedict['t']
+
+        if kid not in self.vertex_deformer:
+            st=time.time()
+            transforms=DeformationTransforms()
+            transforms.load(deformer_path)
+            result=get_deformation_info_fixed_influences(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,self.influ_nums,'inverse_distance')
+            weights=torch.as_tensor(np.array(result['weights']),dtype=torch.float32).to('cuda')
+            RT=torch.as_tensor(np.array(result['RT']),dtype=torch.float32).to('cpu')
+            quaternions, translations = build_quaternion(RT[..., :3, :3]), RT[..., :3, 3]
+            self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
+            print(f"计算局部变形 kid {kid} in {time.time()-st:.2f} seconds")
+        t= torch.as_tensor(codedict['t']).to(self._xyz_0.device).repeat(batch_size,1) # time parameter
+        
+
+        encoded = torch.cat([encoded, t,self.vertex_deformer[kid]], dim=-1)
+
+        delta_xyz = self.xyz_mlp(encoded)  # 这时不会报错
+        delta_xyz = delta_xyz.squeeze(0)
+
+        _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
+
+        delta_rot = self.rot_mlp(encoded)  # 计算旋转
+        delta_rot = delta_rot.squeeze(0)
+        # SUMO
+        _rotation_t=quatProduct_batch(self._rotation_0, delta_rot)  # 使用四元数乘法组合旋转
+        delta_scale = self.scale_mlp(encoded)  # 计算缩放
+        delta_scale = delta_scale.squeeze(0)
+        _scaling_t =self._scaling_0 +delta_scale
+        del delta_xyz, delta_rot, delta_scale
+        torch.cuda.empty_cache()
+
+        self._xyz_t=_xyz_t
+        self._rotation_t=_rotation_t
+        self._scaling_t=_scaling_t
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
@@ -737,18 +772,27 @@ class GaussianModel:
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
-        
-        
-        #WDD 这里应该是有错误的 
-        # 暂时没用上 先没有修改
+
+            
+        #SUMO
         self._xyz_0 = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
-        self._rotation_t = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
-
-
+        self._rotation_0 = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._scaling_0 = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._xyz_t = self._xyz_0.clone().detach().to("cuda")  # 纯数据副本
+        self._rotation_t = self._rotation_0.clone().detach().to("cuda")  # 纯数据副本
+        self._scaling_t = self._scaling_0.clone().detach().to("cuda")  # 纯数据副本
 
         self.active_sh_degree = self.max_sh_degree
 
+    #SUMO 完善加载ply时未能初始化的参数
+    def fixup_params(self,cam_infos,spatial_lr_scale : float):
+        self.spatial_lr_scale = spatial_lr_scale
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+        self.pretrained_exposures = None
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        self.tmp_radii = torch.zeros((self.get_xyz.shape[0]), device="cuda")
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -899,7 +943,6 @@ class GaussianModel:
         # self.base_xyz=torch.cat((self.base_xyz,new_xyz_0.clone().detach().cpu()))
         self.base_xyz=self._xyz_0.clone().detach().cpu()
 
-
     #WDD
     def densify_and_split(self, grads, grad_threshold, scene_extent,kid,N=2):
         # self.canonical_pos_encoded
@@ -932,39 +975,6 @@ class GaussianModel:
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
-
-
-
-    def old_densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
-        n_init_points = self.get_xyz.shape[0]
-        # Extract points that satisfy the gradient condition
-        padded_grad = torch.zeros((n_init_points), device="cuda")
-        padded_grad[:grads.shape[0]] = grads.squeeze()
-        selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
-
-        stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-        
-        means =torch.zeros((stds.size(0), 3),device="cuda")
-        samples = torch.normal(mean=means, std=stds)
-        rots = build_rotation(self._rotation_0[selected_pts_mask]).repeat(N,1,1)
-
-        new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
-        new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
-        new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-        new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
-
-        #WDD
-        new_xyz_0=torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self._xyz_0[selected_pts_mask].repeat(N, 1)
-        new_rotation_0 = self._rotation_0[selected_pts_mask].repeat(N,1)
-        new_scaling_0 = self.scaling_inverse_activation(self._scaling_0[selected_pts_mask].repeat(N,1) / (0.8*N)) #SUMO
-
-        self.densification_postfix(new_xyz_0, new_features_dc, new_features_rest, new_opacity, new_scaling_0, new_rotation_0, new_tmp_radii)
-
-        prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
-        self.prune_points(prune_filter)
-
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
@@ -1011,7 +1021,7 @@ class GaussianModel:
         self.xyz_gradient_accum[update_filter] += torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True)
         self.denom[update_filter] += 1
     
-    #SUMO
+    #SUMO 构建高斯图
     def build_knn_graph(self, k=4):
         points = self.get_xyz.detach().cpu().numpy()
         nbrs = NearestNeighbors(n_neighbors=k+1).fit(points)
@@ -1049,7 +1059,7 @@ class GaussianModel:
 
         self._edge_indices = torch.stack((indices_i, indices_j), dim=0)
     
-
+#三个插值函数，pcd点云稀疏时调用
 def _interpolation_densify(points, colors, density_factor):
     """基于最近邻插值的稠密化"""
     n_points = points.shape[0]

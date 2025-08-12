@@ -175,6 +175,9 @@ class Scene:
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), args.train_test_exp)
+        elif args.use_init_ply and os.path.exists(args.init_ply_path):
+            self.gaussians.load_ply(args.init_ply_path,args.train_test_exp)
+            self.gaussians.fixup_params(scene_info.train_cameras,self.cameras_extent)
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
