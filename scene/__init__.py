@@ -122,6 +122,7 @@ class Scene:
 
         self.scene_info=None
         for frame_id,subfolder in enumerate(subfolders):
+            # print(frame_id,subfolder)
             kid=frame_id
             timecode=float(frame_id)/len(subfolders)
             frame_folder=os.path.join(root_folder,subfolder)
@@ -236,7 +237,7 @@ class Scene:
         if cam_infos is None:
             cam_infos = self.scene_info.train_cameras
         
-        print(f"Loading {len(cam_infos)} Training Cameras at resolution scale {resolution_scale}")
+        # print(f"Loading {len(cam_infos)} Training Cameras at resolution scale {resolution_scale}")
         
         # 确保resolution_scale在字典中存在
         if resolution_scale not in self.train_cameras:

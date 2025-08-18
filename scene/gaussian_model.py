@@ -28,7 +28,7 @@ from scene.deform_model import positional_encoding,MLP,SIREN
 from flame_pytorch import FLAME, parse_args
 import trimesh
 from deformation_graph import apply_deformation_to_gaussians,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
-from deformation_graph import get_deformation_info_fixed_influences
+from deformation_graph import get_deformation_info_fixed_influences,apply_deformation_to_gaussians_fix_influ,apply_deformation_to_gaussians2
 from deformation_graph import DeformationTransforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 from utils.general_utils import build_quaternion,weighted_quaternion_log_space
@@ -140,13 +140,14 @@ class GaussianModel:
         # flame_config = parse_args()
         # self.flame_model = FLAME(flame_config).to("cuda")
         # flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
+        # self.influ=None
         self.influ_nums=20
         code_dim=1+(1+3+4)*self.influ_nums#t,w,q,t
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
-        #self.xyz_mlp = MLP(input_dim=dim_encoded, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        # self.xyz_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
         # 替换
-        self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
+        self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=3.0).to(device='cuda')
 
         #self.rot_mlp = SIREN(input_dim=dim_encoded, output_dim=4, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
         self.rot_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
@@ -222,7 +223,7 @@ class GaussianModel:
         rot_mlp_state_dict,
         scale_mlp_state_dict,
         dg_path,
-        self.base_xyz,
+        base_xyz,
         self.vertex_deformer,
         self.temp_flame_vertices,
         self.inverse_deform_transforms,
@@ -240,7 +241,7 @@ class GaussianModel:
 
         #SUMO
         self.deform_init(dg_path)
-        self.base_xyz=self.base_xyz.cpu()
+        self.base_xyz=base_xyz.cpu()
     
     #在step2恢复参数，优化标准空间
     def restore_step2(self, model_args, training_args):
@@ -325,7 +326,6 @@ class GaussianModel:
     #获取必要的参数，不保存缓存
     def capture_render(self):
         return (
-            self.active_sh_degree,
             self._features_dc,
             self._features_rest,
             self._opacity,
@@ -335,16 +335,15 @@ class GaussianModel:
             self.xyz_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
-            self.dg_path,
+            self.dg,
             self.base_xyz,
             # self.vertex_deformer,
-            self.temp_flame_vertices  
+            # self.temp_flame_vertices  
         )
     
     #推理时调用的恢复参数
     def restore_render(self, model_args):
         (
-            self.active_sh_degree, 
         self._features_dc, 
         self._features_rest, 
         self._opacity,
@@ -354,10 +353,8 @@ class GaussianModel:
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
-        self.dg_path,
+        self.dg,
         self.base_xyz,
-        # self.vertex_deformer,
-        self.temp_flame_vertices,
         
         ) = model_args
         #WDD
@@ -368,6 +365,7 @@ class GaussianModel:
         self.rot_mlp.eval()
         self.scale_mlp.eval()
         self.vertex_deformer={}
+        self.temp_flame_vertices={}
 
     @property
     def get_scaling(self):
@@ -599,7 +597,7 @@ class GaussianModel:
         t=codedict['t']
 
         if kid not in self.vertex_deformer or self._xyz_0.shape[0]!=self.vertex_deformer[kid].shape[0]:
-
+            print("缓存被更新！！！！！")
             transforms=DeformationTransforms()
             transforms.load(deformer_path)
             result=get_deformation_info_fixed_influences(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,self.influ_nums,'inverse_distance')
@@ -609,9 +607,16 @@ class GaussianModel:
 
             self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
 
-            deform_points=apply_deformation_to_gaussians(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
-            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
-
+            # st=time.time()
+            # deform_points=apply_deformation_to_gaussians(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
+            # print(f"计算全局变形 kid {kid} in {time.time()-st:.2f} seconds")
+            # st=time.time()
+            deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
+            # print(f"计算全局变形2 kid {kid} in {time.time()-st:.2f} seconds")
+            # st=time.time()
+            # deform_points,self.influ=apply_deformation_to_gaussians_fix_influ(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,influ=self.influ)
+            # print(f"计算局部变形 kid {kid} in {time.time()-st:.2f} seconds")
+            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
             # test store deformed_ply
             # path=os.path.join("/home/momo/Desktop/data/0724/data","temp"+str(kid).zfill(2)+".ply")
             # storePly(path,deform_points['xyz'])
@@ -664,7 +669,7 @@ class GaussianModel:
         t=codedict['t']
 
         if kid not in self.vertex_deformer:
-            st=time.time()
+            
             transforms=DeformationTransforms()
             transforms.load(deformer_path)
             result=get_deformation_info_fixed_influences(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,self.influ_nums,'inverse_distance')
@@ -672,7 +677,11 @@ class GaussianModel:
             RT=torch.as_tensor(np.array(result['RT']),dtype=torch.float32).to('cpu')
             quaternions, translations = build_quaternion(RT[..., :3, :3]), RT[..., :3, 3]
             self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
-            print(f"计算局部变形 kid {kid} in {time.time()-st:.2f} seconds")
+            
+            deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
+            
+            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
+            
         t= torch.as_tensor(codedict['t']).to(self._xyz_0.device).repeat(batch_size,1) # time parameter
         
 
@@ -961,7 +970,7 @@ class GaussianModel:
         
         rots = build_rotation(self._rotation_t[selected_pts_mask]).repeat(N,1,1)
         new_xyz_t= torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_xyz_0=apply_deformation_to_gaussians(self.dg, new_xyz_t.cpu().numpy(), self.inverse_deform_transforms[kid])['xyz']
+        new_xyz_0=apply_deformation_to_gaussians2(self.dg, new_xyz_t.cpu().numpy(), self.inverse_deform_transforms[kid])
         new_xyz_0 = torch.as_tensor(new_xyz_0).to(new_xyz_t.device)
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
         new_rotation = self._rotation_0[selected_pts_mask].repeat(N,1)
@@ -1176,3 +1185,5 @@ def _adaptive_sampling_densify(points, colors, density_factor, noise_scale):
     densified_colors = np.vstack([colors, np.array(new_colors)])
     
     return densified_points, densified_colors
+
+

@@ -20,8 +20,6 @@ def training(dataset, opt, pipe,checkpoint_path):
     
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
     scene = Scene(dataset, gaussians,shuffle=False)
-    # gaussians.training_setup(opt)
-    # gaussians.training_setup_freeze_x0(opt)
 
     if checkpoint_path:
         (model_params, first_iter) = torch.load(checkpoint_path,weights_only=False,map_location="cuda")
@@ -99,7 +97,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--step3_checkpoint", type=str, default = None) 
     args = parser.parse_args(sys.argv[1:])
-    args.batchnum=50
+    args.batchnum=25
     print("Optimizing " + args.model_path)
     # Initialize system state (RNG)
     safe_state(args.quiet)

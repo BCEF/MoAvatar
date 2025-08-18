@@ -5,6 +5,7 @@
     "version": "0.2.0",
     "configurations": [
 
+
         {
             "name": "Python Debugger: Current File",
             "type": "debugpy",
@@ -12,13 +13,13 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                        "--resolution","2",
+                        "--resolution","4",
                         // "-w",
                         // "-s","/home/momo/Desktop/data/ali/cc01data/keyframes/",
                         "-s","/home/momo/Desktop/data/ali/cc01data/frames/",
-                        "--model_path","/home/momo/Desktop/data/ali/cc01data/output/02_frames",
-                        "--start_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/02/chkpnt20000.pth",
-                        // "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/01_frames/chkpnt320000.pth",
+                        "--model_path","/home/momo/Desktop/data/ali/cc01data/output/06_frames",
+                        // "--start_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/05_frames/chkpnt20000.pth",
+                        "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/06_frames/chkpnt345000.pth",
                         // "--init_ply_path","/home/momo/Desktop/data/ali/cc01data/GaussianInit_speedy.ply"
                     ],
         }

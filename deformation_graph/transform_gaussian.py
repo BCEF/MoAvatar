@@ -1,9 +1,3 @@
-import numpy as np
-from plyfile import PlyData, PlyElement
-from .deformation_graph import DeformationGraph
-from .deformation_utils import DeformationTransforms
-import json
-
 def apply_deformation_to_gaussians(dg, points, transforms):
     """
     将变形图变换应用到高斯散点 - 高性能版本(不使用多进程)
@@ -19,15 +13,10 @@ def apply_deformation_to_gaussians(dg, points, transforms):
     from scipy.spatial import cKDTree
     from scipy.spatial.transform import Rotation
     import numpy as np
-    import time
-    
-    # start_time = time.time()
-    # print("开始应用变形...")
-    
+
     # 创建结果字典，复制输入高斯数据
-    # deformed_gaussian = {key: value.copy() for key, value in gaussian.items()}
-    deformed_gaussian={'xyz':points}
-                    #    'rotations':np.zeros((points.shape[0],4))}
+
+    deformed_gaussian=points.copy()
 
     # 获取变换矩阵和控制节点信息
     transformations = np.array(transforms.transformations)
@@ -35,16 +24,13 @@ def apply_deformation_to_gaussians(dg, points, transforms):
     influence_radius = dg.node_radius
     
     # 获取所有高斯点的位置和旋转
-    # points = gaussian['xyz']
     point_count = points.shape[0]
-    # print(f"处理 {point_count} 个高斯点...")
+
     
     # 1. 使用KD树加速最近点查找
-    # print("构建KD树...")
     kdtree = cKDTree(node_positions)
     
     # 2. 预计算控制节点的SVD分解结果
-    # print("预计算旋转矩阵...")
     rotation_matrices = []
     rotation_objects = []
     for t in transformations:
@@ -55,24 +41,21 @@ def apply_deformation_to_gaussians(dg, points, transforms):
         rotation_objects.append(Rotation.from_matrix(orthogonal_R))
     
     # 3. 批处理 + 稀疏表示
-    batch_size = 20000  # 可调整
+    batch_size = 30000  # 可调整
     num_batches = (point_count + batch_size - 1) // batch_size
     
     for batch_idx in range(num_batches):
-        batch_start = time.time()
         start_idx = batch_idx * batch_size
         end_idx = min(start_idx + batch_size, point_count)
         batch_points = points[start_idx:end_idx]
-        batch_size_actual = end_idx - start_idx
-        
-        # print(f"处理批次 {batch_idx+1}/{num_batches} ({batch_size_actual} 点)...")
+
         
         # 4. 快速查找每个点的影响节点 (半径查询)
         influence_indices = kdtree.query_ball_point(batch_points, influence_radius)
         
         # 5. 预先分配结果数组，避免重复分配内存
-        batch_positions = deformed_gaussian['xyz'][start_idx:end_idx].copy()
-        # batch_rotations = deformed_gaussian['rotations'][start_idx:end_idx].copy()
+        batch_positions = deformed_gaussian[start_idx:end_idx].copy()
+
         
         # 跟踪需要处理的点
         points_to_process = []
@@ -80,14 +63,9 @@ def apply_deformation_to_gaussians(dg, points, transforms):
             if len(indices) > 0:
                 points_to_process.append(i)
         
-        # print(f"  批次中有 {len(points_to_process)}/{batch_size_actual} 点需要处理")
-        
         # 6. 只处理有影响节点的点
         for local_idx in points_to_process:
-            global_idx = start_idx + local_idx
             point_pos = batch_points[local_idx]
-            # orig_quat = gaussian['rotations'][global_idx]
-            # orig_quat=points_rots[global_idx]
             
             # 有影响的节点索引
             node_indices = influence_indices[local_idx]
@@ -117,220 +95,334 @@ def apply_deformation_to_gaussians(dg, points, transforms):
             
             batch_positions[local_idx] = blend_pos
             
-            # # 8. 旋转计算 - 使用预计算的旋转对象
-            # try:
-            #     # 找到权重最大的节点
-            #     max_weight_idx = np.argmax(weights)
-            #     node_idx = node_indices[max_weight_idx]
-                
-            #     # 转换原始四元数为scipy格式
-            #     orig_w, orig_x, orig_y, orig_z = orig_quat
-            #     scipy_quat = np.array([orig_x, orig_y, orig_z, orig_w])
-            #     original_rotation = Rotation.from_quat(scipy_quat)
-                
-            #     # 使用预计算的旋转对象进行组合
-            #     combined_rotation = rotation_objects[node_idx] * original_rotation
-                
-            #     # 转换回w,x,y,z格式
-            #     x, y, z, w = combined_rotation.as_quat()
-            #     result_quat = np.array([w, x, y, z])
-                
-            #     # 确保符号一致
-            #     if np.dot(result_quat, orig_quat) < 0:
-            #         result_quat = -result_quat
-                
-            #     batch_rotations[local_idx] = result_quat
-            # except Exception as e:
-            #     if local_idx % 5000 == 0:
-            #         print(f"  处理旋转出错 (点 {global_idx}): {e}")
-        
         # 更新结果数组
-        deformed_gaussian['xyz'][start_idx:end_idx] = batch_positions
-        # deformed_gaussian['rotations'][start_idx:end_idx] = batch_rotations
-        
-        # batch_time = time.time() - batch_start
-        # print(f"  批次处理完成，耗时: {batch_time:.2f}秒")
-    
-    # total_time = time.time() - start_time
-    # print(f"变形处理完成 - 总耗时: {total_time:.2f}秒")
+        deformed_gaussian[start_idx:end_idx] = batch_positions
+
     
     return deformed_gaussian
 
-class GaussianDeformer:
-    """高斯点云变形工具"""
+def apply_deformation_to_gaussians2(dg, points, transforms):
+    """
+    将变形图变换应用到高斯散点
     
-    def __init__(self, deformation_graph_path, device='cuda'):
-        """初始化高斯变形器"""
-        self.device = device
-        
-        # 加载变形图
-        
-        self.dg = DeformationGraph()
-        self.dg.load(deformation_graph_path)
-        
-        print(f"变形图已加载: {len(self.dg.nodes)} 控制节点")
+    参数:
+        dg: 变形图对象
+     
+        transforms: DeformationTransforms对象，包含变换信息
     
-    def read_gaussian_ply(self, path):
-        """
-        读取高斯PLY文件并提取所有需要的数据
+    返回:
+        deformed_gaussian: 变形后的高斯数据字典
+    """
+    from scipy.spatial import cKDTree
+    from scipy.spatial.transform import Rotation
+    import numpy as np
+
+    # 创建结果字典，复制输入高斯数据
+
+    deformed_gaussian=points.copy()
+
+    # 获取变换矩阵和控制节点信息
+    transformations = np.array(transforms.transformations)
+    node_positions = dg.node_positions
+    influence_radius = dg.node_radius
+    
+    # 获取所有高斯点的位置和旋转
+    point_count = points.shape[0]
+
+    
+    # 1. 使用KD树加速最近点查找
+    kdtree = cKDTree(node_positions)
+    
+    # 3. 批处理 + 稀疏表示
+    batch_size = 30000  # 可调整
+    num_batches = (point_count + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, point_count)
+        batch_points = points[start_idx:end_idx]
+
         
-        参数:
-            path: PLY文件路径
+        # 4. 快速查找每个点的影响节点 (半径查询)
+        influence_indices = kdtree.query_ball_point(batch_points, influence_radius)
+        
+        # 5. 预先分配结果数组，避免重复分配内存
+        batch_positions = deformed_gaussian[start_idx:end_idx]
+
+         # 向量化处理整个批次
+        batch_size = len(batch_points)
+        
+        # 跟踪需要处理的点
+        points_to_process = []
+        for i, indices in enumerate(influence_indices):
+            if len(indices) > 0:
+                points_to_process.append(i)
+        
+        # 6. 只处理有影响节点的点
+        for local_idx in points_to_process:
+            point_pos = batch_points[local_idx]
             
-        返回:
-            gaussian: 包含所有高斯数据的字典
-        """
-        print(f"读取高斯PLY: {path}")
+            # 有影响的节点索引
+            node_indices = influence_indices[local_idx]
+            
+            # 计算到这些节点的距离
+            node_dists = np.linalg.norm(node_positions[node_indices] - point_pos, axis=1)
+            
+            # 计算权重
+            weights = 1.0 - node_dists / influence_radius
+            weights = np.maximum(weights, 0)
+            total_weight = np.sum(weights)
+            
+            if total_weight <= 0:
+                continue
+                
+            weights = weights / total_weight
+            
+            # 7. 向量化位置变换计算
+            homogeneous_pos = np.ones(4)
+            homogeneous_pos[:3] = point_pos
+            
+            
+            # 一次性获取所有相关变换矩阵: shape (k, 4, 4)
+            relevant_transforms = transformations[node_indices]
 
-        gaussian = {}
-        plydata = PlyData.read(path)
-        elem = plydata.elements[0]
+            # 一次性变换: (k, 4, 4) @ (4,) -> (k, 4)  
+            transformed_positions = relevant_transforms @ homogeneous_pos
 
-        # 直接用numpy数组
-        xyz = np.stack([elem["x"], elem["y"], elem["z"]], axis=1).astype(np.float32)
-        opacities = elem["opacity"].astype(np.float32).reshape(-1, 1)
+            # 加权求和: (k,) @ (k, 3) -> (3,)
+            blend_pos = weights @ transformed_positions[:, :3]
+            batch_positions[local_idx] = blend_pos
+            
+        # 更新结果数组
+        deformed_gaussian[start_idx:end_idx] = batch_positions
 
-        features_dc = np.stack([elem["f_dc_0"], elem["f_dc_1"], elem["f_dc_2"]], axis=1).astype(np.float32)
-
-        # 加载额外特征
-        extra_f_names = sorted([p.name for p in elem.properties if p.name.startswith("f_rest_")],
-                                key=lambda x: int(x.split('_')[-1]))
-        features_extra = np.stack([elem[name] for name in extra_f_names], axis=1).astype(np.float32) if extra_f_names else np.empty((xyz.shape[0], 0), dtype=np.float32)
-
-        # 加载缩放
-        scale_names = sorted([p.name for p in elem.properties if p.name.startswith("scale_")],
-                            key=lambda x: int(x.split('_')[-1]))
-        scales = np.stack([elem[name] for name in scale_names], axis=1).astype(np.float32) if scale_names else np.empty((xyz.shape[0], 0), dtype=np.float32)
-
-        # 加载旋转
-        rot_names = sorted([p.name for p in elem.properties if p.name.startswith("rot")],
-                        key=lambda x: int(x.split('_')[-1]))
-        rots = np.stack([elem[name] for name in rot_names], axis=1).astype(np.float32) if rot_names else np.empty((xyz.shape[0], 0), dtype=np.float32)
-        
-
-
-        gaussian['xyz'] = xyz
-        gaussian['features_dc'] = features_dc
-        gaussian['features_extra'] = features_extra
-        gaussian['scales'] = scales
-        gaussian['opacities'] = opacities
-        gaussian['rotations'] = rots
-
-        property_names = [p.name for p in elem.properties]
-        if "kid" in property_names:
-            # 如果存在kid属性，直接读取
-            gaussian['kid'] = elem["kid"].astype(np.int32).reshape(-1, 1)
-            print(f"使用PLY文件中的'kid'属性")
-        else:
-            # 如果不存在kid属性，使用顶点索引
-            gaussian['kid'] = np.arange(gaussian['xyz'].shape[0], dtype=np.int32).reshape(-1, 1)
-            print(f"PLY文件中未找到'kid'属性，使用顶点索引作为kid")
-        return gaussian
     
-    def save_gaussian_ply(self, gaussian, output_path):
-        """
-        保存高斯数据到PLY文件
-        
-        参数:
-            gaussian: 高斯数据字典
-            output_path: 输出PLY文件路径
-        """
-        xyz = gaussian['xyz']
-        N = xyz.shape[0]
-        rots=gaussian['rotations']
-        features_dc = gaussian['features_dc']
-        features_extra = gaussian['features_extra']
-        scales = gaussian['scales']
-        opacities = gaussian['opacities']
-        kid=gaussian['kid']
-       # 动态拼接字段
-        dtype = [('kid', 'i4'),('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
-                ('f_dc_0', 'f4'), ('f_dc_1', 'f4'), ('f_dc_2', 'f4')]
-        
-        for i in range(features_extra.shape[1]):
-            dtype.append((f'f_rest_{i}', 'f4'))
-        
-        for i in range(scales.shape[1]):
-            dtype.append((f'scale_{i}', 'f4'))
-        
-        for i in range(rots.shape[1]):
-            dtype.append((f'rot_{i}', 'f4'))
-        
-        dtype.append(('opacity', 'f4'))
-        
-        # 构建输出数据
-        vertex_data = np.empty(N, dtype=dtype)
-        vertex_data['kid'] = kid[:, 0]
-        vertex_data['x'] = xyz[:, 0]
-        vertex_data['y'] = xyz[:, 1]
-        vertex_data['z'] = xyz[:, 2]
-        vertex_data['f_dc_0'] = features_dc[:, 0]
-        vertex_data['f_dc_1'] = features_dc[:, 1]
-        vertex_data['f_dc_2'] = features_dc[:, 2]
-        
-        for i in range(features_extra.shape[1]):
-            vertex_data[f'f_rest_{i}'] = features_extra[:, i]
-        
-        for i in range(scales.shape[1]):
-            vertex_data[f'scale_{i}'] = scales[:, i]
-        
-        for i in range(rots.shape[1]):
-            vertex_data[f'rot_{i}'] = rots[:, i]
-        
-        vertex_data['opacity'] = opacities[:, 0]
-        
-        # 写 ply 文件
-        vertex_element = PlyElement.describe(vertex_data, 'vertex')
-        PlyData([vertex_element]).write(output_path)
-        print(f"变换后的PLY已保存: {output_path}")
+    return deformed_gaussian
 
 
-# def process_gaussian_ply(input_gaussian_ply_path, output_gaussian_ply_path, deformation_graph_path, transform_path):
-#     """
-#     处理高斯PLY文件，应用变形并保存结果
-    
-#     参数:
-#         input_gaussian_ply_path: 输入高斯PLY文件路径
-#         output_gaussian_ply_path: 输出高斯PLY文件路径
-#         deformation_graph_path: 变形图路径
-#         transform_path: 变换参数路径
-#     """
-#     deformer = GaussianDeformer(deformation_graph_path)
-    
-#     # 读取高斯数据
-#     gaussian = deformer.read_gaussian_ply(input_gaussian_ply_path)
-    
-#     transforms = DeformationTransforms()
-#     transforms.load(transform_path)
-    
-#     # 应用变形
-#     deformed_gaussian = apply_deformation_to_gaussians(deformer.dg, gaussian, transforms)
-    
-#     # 保存变形后的高斯数据
-#     deformer.save_gaussian_ply(deformed_gaussian, output_gaussian_ply_path)
-#     print(f"变形后的高斯PLY已保存: {output_gaussian_ply_path}")
 
-# if __name__ == "__main__":
-#     # 示例用法
-#     deformation_graph_path = "/home/momo/Desktop/deform_3DGS_data/ali_data/deform_graph/deformation_graph.json"
-#     gaussian_ply_path = "/home/momo/Desktop/deform_3DGS_data/ali_data/GaussianInit_speedy.ply"
-#     transform_path="/home/momo/Desktop/deform_3DGS_data/ali_data/deform_graph/Frame000040.json"
-#     output_gaussian_ply_path = "output_gaussian.ply"
+def get_deformation_info_fixed_influences(dg, points, num_influences=20, weight_method='inverse_distance'):
+    """
+    获取每个点的变形信息，每个点使用固定数量的影响节点
+    Args:
+        dg: 变形图对象
+        points: 点位置数组 (N, 3)
+        num_influences: 每个点的影响节点数量 (默认20)
+        weight_method: 权重计算方法 ('inverse_distance', 'gaussian', 'linear_decay', 'uniform')
+    Returns:
+        influence_info: 包含影响节点索引和权重的字典
+    """
+    from scipy.spatial import cKDTree
+    import numpy as np
     
-#     import time
+    # 获取控制节点信息
+    node_positions = dg.node_positions
+    point_count = points.shape[0]
+    
+    # 确保影响节点数量不超过总节点数
+    actual_num_influences = min(num_influences, len(node_positions))
+    if actual_num_influences < num_influences:
+        print(f"警告: 请求的影响节点数 {num_influences} 超过总节点数 {len(node_positions)}，调整为 {actual_num_influences}")
+    
+    # 使用KD树加速最近点查找
+    kdtree = cKDTree(node_positions)
+    
+    # 创建影响信息存储结构
+    influence_info = {}
+    
+    # 批处理
+    batch_size = 30000
+    num_batches = (point_count + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, point_count)
+        batch_points = points[start_idx:end_idx]
+        
+        # 查找每个点的最近邻节点
+        distances, node_indices = kdtree.query(batch_points, k=actual_num_influences)
+        
+        # 如果只有一个影响节点，确保distances和node_indices是2D数组
+        if actual_num_influences == 1:
+            distances = distances.reshape(-1, 1)
+            node_indices = node_indices.reshape(-1, 1)
+        
+        # 计算权重
+        batch_weights = []
+        batch_indices = []
+        
+        for i in range(len(batch_points)):
+            point_distances = distances[i]
+            point_node_indices = node_indices[i]
+            
+            # 计算权重
+            weights = calculate_weights(point_distances, weight_method)
+            
+            batch_weights.append(weights.tolist())
+            batch_indices.append(point_node_indices.tolist())
+        
+        # 保存批次信息
+        influence_info[batch_idx] = {
+            'indices': batch_indices,
+            'weights': batch_weights
+        }
+    
+    return influence_info
 
-#     deformer = GaussianDeformer(deformation_graph_path)
+def calculate_weights(distances, weight_method='inverse_distance'):
+    """计算权重的辅助函数"""
+    import numpy as np
     
-#     # 读取高斯数据
-#     gaussian = deformer.read_gaussian_ply(gaussian_ply_path)
-#     transforms = DeformationTransforms()
-#     transforms.load(transform_path)
-#     # 应用变形
-#     st=time.time()
-#     deformed_gaussian = apply_deformation_to_gaussians(deformer.dg, gaussian, transforms)
+    if weight_method == 'inverse_distance':
+        # 避免除零，加小的epsilon
+        weights = 1.0 / (distances + 1e-8)
+    elif weight_method == 'gaussian':
+        # 高斯权重，sigma可以调整
+        sigma = np.mean(distances) if len(distances) > 1 else 1.0
+        weights = np.exp(-(distances ** 2) / (2 * sigma ** 2))
+    elif weight_method == 'linear_decay':
+        # 线性衰减
+        max_dist = np.max(distances) if len(distances) > 1 else 1.0
+        weights = 1.0 - distances / max_dist
+        weights = np.maximum(weights, 0)
+    elif weight_method == 'uniform':
+        # 均匀权重
+        weights = np.ones_like(distances)
+    else:
+        raise ValueError(f"未知的权重方法: {weight_method}")
     
-#     # 保存变形后的高斯数据
-#     deformer.save_gaussian_ply(deformed_gaussian, output_gaussian_ply_path)
-#     print("变形完成")
-#     print("耗时:",time.time()-st)
+    # 归一化权重
+    total_weight = np.sum(weights)
+    if total_weight > 0:
+        weights = weights / total_weight
+    
+    return weights
 
+def apply_deformation_to_gaussians_fix_influ(dg, points, transforms, influ=None, num_influences=20, weight_method='inverse_distance'):
+    """
+    将变形图变换应用到高斯散点 - 高性能版本(不使用多进程)
+    参数:
+    dg: 变形图对象
+    points: 高斯点位置数组
+    transforms: DeformationTransforms对象，包含变换信息
+    influ: 预计算的影响信息字典（可选）
+    num_influences: 每个点的影响节点数量 (默认20)
+    weight_method: 权重计算方法
+    返回:
+    deformed_gaussian: 变形后的高斯数据字典
+    influ: 影响信息字典
+    """
+    from scipy.spatial.transform import Rotation
+    import numpy as np
+    import time
+    
+    st = time.time()
+    # 创建结果字典，复制输入高斯数据
+    deformed_gaussian = points.copy()
+    
+    # 获取变换矩阵
+    transformations = np.array(transforms.transformations)
+    point_count = points.shape[0]
+    
+    # 获取或计算影响信息
+    if influ is None:
+        print("计算影响信息...")
+        influ = get_deformation_info_fixed_influences(dg, points, num_influences, weight_method)
+        print(f"影响信息计算完成，耗时 {time.time()-st:.2f} seconds")
+    
+    # 预计算控制节点的SVD分解结果
+    rotation_matrices = []
+    rotation_objects = []
+    for t in transformations:
+        R = t[:3, :3]
+        u, s, vh = np.linalg.svd(R, full_matrices=False)
+        orthogonal_R = u @ vh
+        rotation_matrices.append(orthogonal_R)
+        rotation_objects.append(Rotation.from_matrix(orthogonal_R))
+    
+    
+    # 批处理应用变形
+    batch_size = 30000  # 可调整
+    num_batches = (point_count + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, point_count)
+        batch_points = points[start_idx:end_idx]
+        
+        # 获取批次影响信息
+        batch_influence_info = influ[batch_idx]
+        influence_indices = batch_influence_info['indices']
+        influence_weights = batch_influence_info['weights']
+        
+        # 预先分配结果数组，避免重复分配内存
+        batch_positions = deformed_gaussian[start_idx:end_idx].copy()
+        
+        # # 处理批次中的每个点
+        # for local_idx in range(len(batch_points)):
+        #     point_pos = batch_points[local_idx]
+            
+        #     # 获取影响的节点索引和权重
+        #     node_indices = np.array(influence_indices[local_idx])
+        #     weights = np.array(influence_weights[local_idx])
+            
+        #     # 向量化位置变换计算
+        #     homogeneous_pos = np.ones(4)
+        #     homogeneous_pos[:3] = point_pos
+            
+            # # 使用矩阵乘法一次性计算所有变换
+            # blend_pos = np.zeros(3)
+            # for j, node_idx in enumerate(node_indices):
+            #     transformed_pos = transformations[node_idx] @ homogeneous_pos
+            #     blend_pos += weights[j] * transformed_pos[:3]
+            
+            # batch_positions[local_idx] = blend_pos
+
+        # 向量化处理整个批次
+        batch_size = len(batch_points)
+        
+        # 构建齐次坐标矩阵 (batch_size, 4)
+        homogeneous_points = np.ones((batch_size, 4))
+        homogeneous_points[:, :3] = batch_points
+        
+        # # 向量化处理每个点
+        # for local_idx in range(batch_size):
+        #     print(len(influence_indices))
+        #     node_indices = np.array(influence_indices[local_idx])
+        #     weights = np.array(influence_weights[local_idx])
+            
+        #     # 获取该点的所有变换矩阵 (num_influences, 4, 4)
+        #     point_transforms = transformations[node_indices]
+            
+        #     # 向量化应用所有变换: (num_influences, 4, 4) @ (4,) -> (num_influences, 4)
+        #     transformed_points = point_transforms @ homogeneous_points[local_idx]
+            
+        #     # 加权求和: (num_influences, 1) * (num_influences, 3) -> (3,)
+        #     batch_positions[local_idx] = np.sum(weights[:, None] * transformed_points[:, :3], axis=0)
+        
+        # 将影响信息转换为NumPy数组以支持向量化
+        influence_indices_array = np.array(influence_indices)  # (batch_size, num_influences)
+        influence_weights_array = np.array(influence_weights)  # (batch_size, num_influences)
+        
+        # 展平索引并获取所有需要的变换矩阵
+        flat_indices = influence_indices_array.flatten()  # (batch_size * num_influences,)
+        selected_transforms = transformations[flat_indices]  # (batch_size * num_influences, 4, 4)
+        
+        # 重塑为批次形状 (batch_size, num_influences, 4, 4)
+        batch_transforms = selected_transforms.reshape(batch_size, influence_indices_array.shape[1], 4, 4)
+        
+        # 批量矩阵乘法: (batch_size, num_influences, 4, 4) @ (batch_size, 4, 1) -> (batch_size, num_influences, 4)
+        # 使用 einsum 进行高效的批量矩阵乘法
+        transformed_points = np.einsum('bijk,bk->bij', batch_transforms, homogeneous_points)
+        
+        # 批量加权求和: (batch_size, num_influences, 1) * (batch_size, num_influences, 3) -> (batch_size, 3)
+        batch_positions[:] = np.sum(influence_weights_array[..., None] * transformed_points[..., :3], axis=1)
+        
+        # 更新结果数组
+        deformed_gaussian[start_idx:end_idx] = batch_positions
+    
+        
+        # 更新结果数组
+        deformed_gaussian[start_idx:end_idx] = batch_positions
+    
+    return deformed_gaussian, influ

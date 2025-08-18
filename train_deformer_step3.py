@@ -117,7 +117,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
-            batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
+            # batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
+            batch_end_iter = global_iteration + opt.iterations
             
             progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle{cycle+1} Batch{batch_idx+1}")
             
@@ -158,13 +159,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 rand_idx = randint(0, len(viewpoint_indices) - 1)
                 viewpoint_cam = viewpoint_stack.pop(rand_idx)
                 vind = viewpoint_indices.pop(rand_idx)
-                # if viewpoint_cam.kid==0:
-                #     continue
                 
                 if (local_iteration - 1) == debug_from:
                     pipe.debug = True
-
-                
 
                 #SUMO
                 codedict={}
@@ -175,15 +172,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
-
-                #SUMO 测试用 保存图像
-                # image = render_pkg["render"]
-                # image = image.clamp(0, 1)
-                # image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
-                # save_image = image_np
-                # save_image = save_image[:,:,[2,1,0]]
-                
-                # cv2.imwrite(os.path.join(dataset.model_path,f'{viewpoint_cam.kid}.png'), save_image)
 
                 gt_image = viewpoint_cam.original_image.cuda()
                 if viewpoint_cam.alpha_mask is not None:
@@ -293,28 +281,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                             gaussians.optimizer.step()
                             gaussians.optimizer.zero_grad(set_to_none = True)
 
-                    
-                    # if local_iteration < opt.densify_until_iter:
-                    #     #不执行稠密化和剪枝
-                    #     if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                    #         gaussians.reset_opacity()
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):
                         print(f"\n[GLOBAL ITER {global_iteration}] Saving Checkpoint (Cycle {cycle+1}, Batch {batch_idx+1}, Local Iter {local_iteration})")
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
-            # del gaussians.vertex_deformer
-            # del gaussians.temp_flame_vertices
             scene.clearCameras(dataset.rscale)
-            # gaussians.vertex_deformer={}
-            # gaussians.temp_flame_vertices={}
+            # if batch_idx%10==0:
+            #     torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
 
         #在每个cycle结束时保存一次模型 
         print(f"\n[GLOBAL ITER {global_iteration}] Saving Gaussians at the end of cycle {cycle+1}")
         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
-            
             
 
 def prepare_output_and_logger(args):    
@@ -397,7 +377,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     args.iterations=1000
-    args.batchnum=50
+    args.batchnum=25
     args.looptimes=100
     # args.random_background=True
     print("Optimizing " + args.model_path)

@@ -108,9 +108,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ema_Ll1depth_for_log = 0.0
 
             #SUMO
-            smooth_loss=0
-            temp_loss=0
-
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
             batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
@@ -176,14 +173,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 codedict['t']=viewpoint_cam.timecode
                 codedict['kid'] = viewpoint_cam.kid
                 
-
+                #SUMO 标准空间的约束项，令其与第0帧一致
                 if viewpoint_cam.kid==0:
                     gaussians.forward_x0()
                     render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                     image0=render_pkg["render"]
                     loss+=l1_loss(image0, gt_image)*0.5
 
-
+                #三个mlp推理
                 gaussians.forward(codedict,update=True)
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -261,12 +258,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii[visibility_filter])
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
-                        if local_iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                            size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                        if local_iteration > opt.densify_from_iter and local_iteration % opt.densification_interval == 0:
+                            size_threshold = 20 if local_iteration > opt.opacity_reset_interval else None
                             kid=viewpoint_cam.kid
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,kid)
-                            print(gaussians._xyz_0.shape)
-
+                            print(f'稠密化和剪枝后高斯点数：{gaussians._xyz_0.shape[0]}')
 
                         if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
                             gaussians.reset_opacity()
@@ -276,11 +272,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         print(f"\n[GLOBAL ITER {global_iteration}] Saving Checkpoint (Cycle {cycle+1}, Batch {batch_idx+1}, Local Iter {local_iteration})")
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
-            # del gaussians.vertex_deformer
-            # del gaussians.temp_flame_vertices
             scene.clearCameras(dataset.rscale)
-            # gaussians.vertex_deformer={}
-            # gaussians.temp_flame_vertices={}
             
 
         #在每个cycle结束时保存一次模型 

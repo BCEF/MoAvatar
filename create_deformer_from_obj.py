@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from deformation_graph import generate_deformation_graph,compute_deformation_transforms
 from deformation_graph import DeformationGraph
-from deformation_graph import apply_deformation_to_gaussians
+from deformation_graph import apply_deformation_to_gaussians2,apply_deformation_to_gaussians_fix_influ
 
 from typing import Union, List
 import torch
@@ -93,8 +93,6 @@ def read_obj(file_path: str, triangulate: bool = True) -> Tuple[np.ndarray, np.n
     print(f"读取完成: {len(vertices)} 个顶点, {len(faces)} 个面片")
     
     return vertices, faces
-
-
 
 def save_obj(file_path: str, vertices: np.ndarray, faces: Union[np.ndarray, List], 
              header_comment: str = None) -> bool:
@@ -330,6 +328,6 @@ if __name__=='__main__':
         inv_transforms.save(os.path.join(data_folder,subfolder.name,'inv_transforms.json'))
 
         base_vertex,faces=read_obj(base_path)
-        deform_points=apply_deformation_to_gaussians(dg,base_vertex,transforms)
+        deform_points=apply_deformation_to_gaussians2(dg,base_vertex,transforms)
         os.makedirs(os.path.join(root_folder,"test"),exist_ok=True)
-        save_obj(os.path.join(root_folder,"test",subfolder.name+'.obj'),deform_points['xyz'],faces)
+        save_obj(os.path.join(root_folder,"test",subfolder.name+'.obj'),deform_points,faces)
