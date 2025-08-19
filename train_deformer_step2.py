@@ -63,7 +63,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gaussians.restore_step2(model_params,opt)
     
     #Step3:knn
-    gaussians.build_knn_graph(k=4)
+    # gaussians.build_knn_graph(k=4)
 
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum

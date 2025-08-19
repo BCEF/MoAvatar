@@ -15,12 +15,12 @@
             "args": [
                         "--resolution","4",
                         // "-w",
-                        // "-s","/home/momo/Desktop/data/ali/cc01data/keyframes/",
-                        "-s","/home/momo/Desktop/data/ali/cc01data/frames/",
-                        "--model_path","/home/momo/Desktop/data/ali/cc01data/output/06_frames",
-                        // "--start_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/05_frames/chkpnt20000.pth",
-                        "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/06_frames/chkpnt345000.pth",
-                        // "--init_ply_path","/home/momo/Desktop/data/ali/cc01data/GaussianInit_speedy.ply"
+                        "-s","/home/momo/Desktop/data/ali/cc01data/keyframes/",
+                        // "-s","/home/momo/Desktop/data/ali/cc01data/frames/",
+                        "--model_path","/home/momo/Desktop/data/ali/cc01data/output/08_frames",
+                        // "--start_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/07_frames/chkpnt20000.pth",
+                        // "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/07_frames_fix/chkpnt195000.pth",
+                        "--init_ply_path","/home/momo/Desktop/data/ali/cc01data/point_cloud_12000.ply"
                     ],
         }
     ]

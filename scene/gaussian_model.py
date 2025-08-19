@@ -137,6 +137,7 @@ class GaussianModel:
         self.dg=None
         self.temp_flame_vertices=None
         self.vertex_deformer=None
+        self._edge_indices=None
         # flame_config = parse_args()
         # self.flame_model = FLAME(flame_config).to("cuda")
         # flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
@@ -147,7 +148,7 @@ class GaussianModel:
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
         # self.xyz_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
         # 替换
-        self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=3.0).to(device='cuda')
+        self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
 
         #self.rot_mlp = SIREN(input_dim=dim_encoded, output_dim=4, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
         self.rot_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
@@ -1032,7 +1033,7 @@ class GaussianModel:
     
     #SUMO 构建高斯图
     def build_knn_graph(self, k=4):
-        points = self.get_xyz.detach().cpu().numpy()
+        points = self._xyz_0.detach().cpu().numpy()
         nbrs = NearestNeighbors(n_neighbors=k+1).fit(points)
         _, indices = nbrs.kneighbors(points)
 

@@ -66,7 +66,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         (model_params, first_iter) = torch.load(step3_checkpoint,weights_only=False,map_location="cuda")
         gaussians.restore_step3(model_params, opt)
     
-    #Step3:knn
+    #Step3:
+    # if gaussians._edge_indices is None:
     gaussians.build_knn_graph(k=4)
 
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
