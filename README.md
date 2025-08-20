@@ -19,31 +19,30 @@ The data is organized in the following form：
 ```
 dataset
 ├── sparse #colmap camera for SIBR view
+├── deformation_graph.json
 ├── <frame0000>
     ├── alpha # raw alpha prediction
     ├── images # extracted video frames
-    ├── sparse # colmap camera
-    ├── flame.frame # flame parameters
+    ├── transforms.json
+    ├── inv_transforms.json
+    ├── sparse # colmap camera【alternative】
 ├── <frame0001>
-...
+```
+训练 Train
 
+- train_deformer_step2.py训练标准空间，包含稠密化和剪枝，可以添加预训练的高斯ply模型作为init_ply_path（此参数为可选项）
 ```
-## 训练 Train
-- train_batch_step2.py训练标准空间，包含稠密化和剪枝
+train_deformer_step2.py -s <dataset path> --model_path <output path>  --init_ply_path <pretrain ply>
 ```
-train_batch_step2.py -s <dataset path> --model_path <output path> 
+- train_deformer_step3.py训练MLP，不优化标准空间，有刚性约束和时间连续性约束，checkpoint path是step2新的训练结果
 ```
-- train_batch_step3.py训练MLP，不优化标准空间，有刚性约束和时间连续性约束
+train_deformer_step3.py -s <dataset path> --model_path <output path> --start_checkpoint <checkpoint path>
 ```
-train_batch_step3.py -s <dataset path> --model_path <output path> --start_checkpoint <checkpoint path>
+- train_deformer_step3.py,如果需要继续之前的训练，可以设置step3_checkpoint
+```
+train_deformer_step3.py -s <dataset path> --model_path <output path> --step3_checkpoint <restore ckpt>
 ```
 - render_ckpt.py读取checkpoint渲染每一帧的图像和ply
 ```
-render_ckpt.py -s <dataset path> --model_path <output path> --start_checkpoint <checkpoint path>
-```
-
-## 下载FLAME数据 Download FLAME data
-To download the FLAME model, sign up and agree to the model license under MPI-IS/FLAME. Then run following script:
-```
-./fetch_FLAME.sh
+render_ckpt.py -s <dataset path> --model_path <output path> --step3_checkpoint <checkpoint path>
 ```
