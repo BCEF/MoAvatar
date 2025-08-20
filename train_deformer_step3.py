@@ -48,7 +48,7 @@ import cv2
 def get_iterations_by_cycle(cycle, start_iterations):
     return max(1000,start_iterations-cycle*(start_iterations//20))
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, step3_checkpoint,debug_from):
+def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, step3_checkpoint,debug_from):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -57,18 +57,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree,opt.optimizer_type)
     scene = Scene(dataset, gaussians)
+    #不优化标准空间
     gaussians.training_setup_freeze_x0(opt)
+
+    #从step2的结果加载，只加载标准空间
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
         gaussians.restore_from_keyframe(model_params,opt)
     
+    #从step3的结果加载，加载所有参数
     if step3_checkpoint:
         (model_params, first_iter) = torch.load(step3_checkpoint,weights_only=False,map_location="cuda")
         gaussians.restore_step3(model_params, opt)
     
-    #Step3:
-    # if gaussians._edge_indices is None:
-    gaussians.build_knn_graph(k=4)
+    #构建高斯图
+    if gaussians._edge_indices is None:
+        gaussians.build_knn_graph(k=4)
 
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum
@@ -118,7 +122,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
-            # batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
             batch_end_iter = global_iteration + opt.iterations
             
             progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle{cycle+1} Batch{batch_idx+1}")
@@ -146,7 +149,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 # iter_start.record()
 
-                # step3 :不优化标准空间
                 local_iteration = iteration - batch_start_iter + 1
                 gaussians.update_learning_rate(local_iteration)
 
@@ -183,11 +185,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
-                        white_background_image = torch.ones_like(gt_image)  # 白色背景
-                        white_background_image[0,::]=bg[0]
-                        white_background_image[1,::]=bg[1]
-                        white_background_image[2,::]=bg[2]
-                        gt_image = gt_image * alpha + white_background_image * (1 - alpha)
+                        background_image = torch.ones_like(gt_image)  # 白色背景
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
+                    elif dataset.random_background:
+                        background_image = torch.ones_like(gt_image)  # 随机背景
+                        background_image[0,::]=bg[0]
+                        background_image[1,::]=bg[1]
+                        background_image[2,::]=bg[2]
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
                     else:
                         gt_image*=alpha
 
@@ -289,8 +294,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
             scene.clearCameras(dataset.rscale)
-            # if batch_idx%10==0:
-            #     torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
 
         #在每个cycle结束时保存一次模型 
@@ -366,7 +369,6 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 30_000, 300_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
@@ -378,7 +380,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     args.iterations=1000
-    args.batchnum=1
+    args.batchnum=10
     args.looptimes=100
     # args.random_background=True
     print("Optimizing " + args.model_path)
@@ -388,6 +390,6 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.step3_checkpoint,args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.step3_checkpoint,args.debug_from)
 
     print("\nTraining complete.")

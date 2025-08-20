@@ -102,8 +102,6 @@ class GaussianModel:
         self.optimizer_type = optimizer_type
         self.max_sh_degree = sh_degree  
          
-        # self._features_dc = torch.empty(0)
-        # self._features_rest = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
@@ -143,10 +141,7 @@ class GaussianModel:
         self.temp_flame_vertices=None
         self.vertex_deformer=None
         self._edge_indices=None
-        # flame_config = parse_args()
-        # self.flame_model = FLAME(flame_config).to("cuda")
-        # flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
-        # self.influ=None
+
         self.influ_nums=20
         code_dim=1+(1+3+4)*self.influ_nums#t,w,q,t
         # 根据编码后的维度初始化 MLP
@@ -155,7 +150,6 @@ class GaussianModel:
         # 替换
         self.xyz_mlp = SIREN(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
 
-        #self.rot_mlp = SIREN(input_dim=dim_encoded, output_dim=4, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
         self.rot_mlp = MLP(input_dim=dim_encoded+code_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
         #SUMO
@@ -183,9 +177,6 @@ class GaussianModel:
     def capture(self):
         return (
             self.active_sh_degree,
-            # self._features_dc,
-            # self._features_rest,
-            # self._scaling,
             self._opacity,
             self.max_radii2D,
             self.xyz_gradient_accum,
@@ -202,8 +193,6 @@ class GaussianModel:
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
             self.features_mlp.state_dict(),
-            # self.canonical_flame_code,
-            # self.temp_flame_vertices,
             self.dg_path,
             self.base_xyz,
             self.vertex_deformer,
@@ -217,9 +206,6 @@ class GaussianModel:
     def restore_step3(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        # self._features_dc, 
-        # self._features_rest,
-        # self._scaling,  
         self._opacity,
         self.max_radii2D, 
         xyz_gradient_accum, 
@@ -261,9 +247,6 @@ class GaussianModel:
     def restore_step2(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        # self._features_dc, 
-        # self._features_rest,
-        # self._scaling,  
         self._opacity,
         self.max_radii2D, 
         xyz_gradient_accum, 
@@ -306,9 +289,6 @@ class GaussianModel:
     def restore_from_keyframe(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        # self._features_dc, 
-        # self._features_rest,
-        # self._scaling,  
         self._opacity,
         max_radii2D, 
         xyz_gradient_accum, 
@@ -332,13 +312,12 @@ class GaussianModel:
         inverse_deform_transforms,
         _edge_indices
         ) = model_args
-        # self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
-        # self.rot_mlp.load_state_dict(rot_mlp_state_dict)
-        # self.scale_mlp.load_state_dict(scale_mlp_state_dict)
 
         self._xyz_t = self._xyz_0.clone().detach().to("cuda")
         self._rotation_t=self._rotation_0.clone().detach().to("cuda")
         self._scaling_t = self._scaling_0.clone().detach().to("cuda") 
+        self._features_dc_t = self._features_dc_0.clone().detach().to("cuda")
+        self._features_rest_t = self._features_rest_0.clone().detach().to("cuda")
         
         self.training_setup_freeze_x0(training_args)
         self.deform_init(dg_path)
@@ -346,8 +325,6 @@ class GaussianModel:
     #获取必要的参数，不保存缓存
     def capture_render(self):
         return (
-            # self._features_dc,
-            # self._features_rest,
             self._opacity,
             self._xyz_0,
             self._rotation_0, 
@@ -360,15 +337,11 @@ class GaussianModel:
             self.features_mlp.state_dict(),
             self.dg,
             self.base_xyz,
-            # self.vertex_deformer,
-            # self.temp_flame_vertices  
         )
     
     #推理时调用的恢复参数
     def restore_render(self, model_args):
         (
-        # self._features_dc, 
-        # self._features_rest, 
         self._opacity,
         self._xyz_0, 
         self._rotation_0,
@@ -483,10 +456,6 @@ class GaussianModel:
 
         self._features_rest_0 = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
         self._features_rest_t = features[:,:,1:].transpose(1, 2).contiguous().clone().detach().to("cuda")
-
-        # self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        # self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
-        # self._scaling = nn.Parameter(scales.requires_grad_(True))
         
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
@@ -516,7 +485,7 @@ class GaussianModel:
             {'params': [self._features_dc_0], 'lr': training_args.feature_lr, "name": "f_dc_0"},
             {'params': [self._features_rest_0], 'lr': training_args.feature_lr / 20.0, "name": "f_rest_0"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"}
-            # {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"}
+
             ]
 
         if self.optimizer_type == "default":
@@ -553,8 +522,6 @@ class GaussianModel:
             {'params': self.scale_mlp.parameters(), 'lr':  training_args.scaling_lr*0.01, "name": "scale_mlp"},
             {'params': self.features_mlp.parameters(), 'lr':  training_args.feature_lr*0.01, "name": "features_mlp"},
         
-            # {'params': [self._features_dc_0], 'lr': training_args.feature_lr, "name": "f_dc_0"},
-            # {'params': [self._features_rest_0], 'lr': training_args.feature_lr / 20.0, "name": "f_rest_0"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"}
             ]
 
@@ -642,19 +609,10 @@ class GaussianModel:
 
             self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
 
-            # st=time.time()
-            # deform_points=apply_deformation_to_gaussians(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
-            # print(f"计算全局变形 kid {kid} in {time.time()-st:.2f} seconds")
-            # st=time.time()
             deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
-            # print(f"计算全局变形2 kid {kid} in {time.time()-st:.2f} seconds")
-            # st=time.time()
-            # deform_points,self.influ=apply_deformation_to_gaussians_fix_influ(self.dg,self.base_xyz.cpu().clone().numpy(),transforms,influ=self.influ)
-            # print(f"计算局部变形 kid {kid} in {time.time()-st:.2f} seconds")
+
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
-            # test store deformed_ply
-            # path=os.path.join("/home/momo/Desktop/data/0724/data","temp"+str(kid).zfill(2)+".ply")
-            # storePly(path,deform_points['xyz'])
+
 
             inv_trans_path=os.path.join(os.path.dirname(deformer_path),"inv_transforms.json")
             inv_transform=DeformationTransforms()
@@ -704,6 +662,8 @@ class GaussianModel:
         self._xyz_t=self._xyz_0
         self._rotation_t=self._rotation_0
         self._scaling_t=self._scaling_0
+        self._features_dc_t=self._features_dc_0
+        self._features_rest_t=self._features_rest_0
 
     #推理时调用的前向渲染函数
     def forward_render(self, codedict=None):
@@ -766,7 +726,6 @@ class GaussianModel:
         mkdir_p(os.path.dirname(path))
 
         #WDD
-        #xyz = self._xyz.detach().cpu().numpy()
         xyz = self.get_xyz.detach().cpu().numpy()
         rotation = self._rotation_t.detach().cpu().numpy()
         scale = self._scaling_t.detach().cpu().numpy()
@@ -834,8 +793,6 @@ class GaussianModel:
         for idx, attr_name in enumerate(rot_names):
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        # self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        # self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
 
             
@@ -936,7 +893,7 @@ class GaussianModel:
         self._features_dc_0 = optimizable_tensors["f_dc_0"]
         self._features_rest_0 = optimizable_tensors["f_rest_0"]
         self._opacity = optimizable_tensors["opacity"]
-        # self._scaling = optimizable_tensors["scaling"]
+
         
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -1016,7 +973,6 @@ class GaussianModel:
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         #SUMO
-        # self.base_xyz=torch.cat((self.base_xyz,new_xyz_0.clone().detach().cpu()))
         self.base_xyz=self._xyz_0.clone().detach().cpu()
 
     #WDD

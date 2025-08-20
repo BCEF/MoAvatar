@@ -41,13 +41,10 @@ except:
     SPARSE_ADAM_AVAILABLE = False
 
 #SUMO
-from utils.loss_utils import E_temp,E_smooth,E_scale
+from utils.loss_utils import E_scale
 
 #SUMO
-def get_iterations_by_cycle(cycle, start_iterations):
-    return max(1000,start_iterations-cycle*(start_iterations//20))
-
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
 
     if not SPARSE_ADAM_AVAILABLE and opt.optimizer_type == "sparse_adam":
         sys.exit(f"Trying to use sparse adam but it is not installed, please install the correct rasterizer using pip install [3dgs_accel].")
@@ -62,8 +59,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
         gaussians.restore_step2(model_params,opt)
     
-    #Step3:knn
-    # gaussians.build_knn_graph(k=4)
 
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum
@@ -110,7 +105,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             #SUMO
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
-            batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
+            batch_end_iter = global_iteration + opt.iterations
             
             progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle{cycle+1} Batch{batch_idx+1}")
             
@@ -135,7 +130,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 # iter_start.record()
 
-                # step3 :不优化标准空间
                 local_iteration = iteration - batch_start_iter + 1
                 gaussians.update_learning_rate(local_iteration)
 
@@ -161,8 +155,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
-                        white_background_image = torch.ones_like(gt_image)  # 白色背景
-                        gt_image = gt_image * alpha + white_background_image * (1 - alpha)
+                        background_image = torch.ones_like(gt_image)  # 白色背景
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
+                    elif dataset.random_background:
+                        background_image = torch.ones_like(gt_image)  # 随机背景
+                        background_image[0,::]=bg[0]
+                        background_image[1,::]=bg[1]
+                        background_image[2,::]=bg[2]
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
                     else:
                         gt_image*=alpha
 
@@ -174,14 +174,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 codedict['kid'] = viewpoint_cam.kid
                 
                 #SUMO 标准空间的约束项，令其与第0帧一致
-                # if viewpoint_cam.kid==0:
-                #     gaussians.forward_x0()
-                #     render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
-                #     image0=render_pkg["render"]
-                #     loss+=l1_loss(image0, gt_image)*0.5
-
-                #三个mlp推理
-                gaussians.forward(codedict,update=True)
+                if viewpoint_cam.kid==0:
+                    gaussians.forward_x0()
+                else:
+                    gaussians.forward(codedict,update=True)
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 
