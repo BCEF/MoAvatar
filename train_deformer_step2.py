@@ -174,11 +174,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 codedict['kid'] = viewpoint_cam.kid
                 
                 #SUMO 标准空间的约束项，令其与第0帧一致
-                if viewpoint_cam.kid==0:
-                    gaussians.forward_x0()
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
-                    image0=render_pkg["render"]
-                    loss+=l1_loss(image0, gt_image)*0.5
+                # if viewpoint_cam.kid==0:
+                #     gaussians.forward_x0()
+                #     render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                #     image0=render_pkg["render"]
+                #     loss+=l1_loss(image0, gt_image)*0.5
 
                 #三个mlp推理
                 gaussians.forward(codedict,update=True)
@@ -363,7 +363,7 @@ if __name__ == "__main__":
     #关键帧数量少，放在一个batch中训练，训练次数多一些
     args.iterations=20000
     args.batchnum=1
-    args.looptimes=100
+    args.looptimes=2
     
     print("Optimizing " + args.model_path)
 

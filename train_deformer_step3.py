@@ -378,7 +378,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     args.iterations=1000
-    args.batchnum=25
+    args.batchnum=1
     args.looptimes=100
     # args.random_background=True
     print("Optimizing " + args.model_path)

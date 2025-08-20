@@ -102,8 +102,8 @@ class GaussianModel:
         self.optimizer_type = optimizer_type
         self.max_sh_degree = sh_degree  
          
-        self._features_dc = torch.empty(0)
-        self._features_rest = torch.empty(0)
+        # self._features_dc = torch.empty(0)
+        # self._features_rest = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
@@ -124,6 +124,11 @@ class GaussianModel:
         
         self._scaling_0=torch.empty(0)
         self._scaling_t=torch.empty(0)
+
+        self._features_dc_0 = torch.empty(0)
+        self._features_dc_t = torch.empty(0)
+        self._features_rest_0 = torch.empty(0)
+        self._features_rest_t = torch.empty(0)
 
         # 初始化位置编码相关参数
         self.num_freqs = 8
@@ -156,6 +161,8 @@ class GaussianModel:
         #SUMO
         self.scale_mlp=MLP(input_dim=dim_encoded+code_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
+        self.features_mlp=MLP(input_dim=dim_encoded+code_dim, output_dim=48, hidden_dim=256, hidden_layers=8).to(device='cuda')
+
         #WDD
         self.inverse_deform_transforms={}
 
@@ -176,8 +183,8 @@ class GaussianModel:
     def capture(self):
         return (
             self.active_sh_degree,
-            self._features_dc,
-            self._features_rest,
+            # self._features_dc,
+            # self._features_rest,
             # self._scaling,
             self._opacity,
             self.max_radii2D,
@@ -189,9 +196,12 @@ class GaussianModel:
             self._xyz_0,
             self._rotation_0, 
             self._scaling_0,  # 新增：保存缩放参数
+            self._features_dc_0,
+            self._features_rest_0,
             self.xyz_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
+            self.features_mlp.state_dict(),
             # self.canonical_flame_code,
             # self.temp_flame_vertices,
             self.dg_path,
@@ -207,8 +217,8 @@ class GaussianModel:
     def restore_step3(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        self._features_dc, 
-        self._features_rest,
+        # self._features_dc, 
+        # self._features_rest,
         # self._scaling,  
         self._opacity,
         self.max_radii2D, 
@@ -220,9 +230,12 @@ class GaussianModel:
         self._xyz_0, 
         self._rotation_0,
         self._scaling_0,  # 新增：恢复缩放参数
+        self._features_dc_0,
+        self._features_rest_0,
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
+        features_mlp_state_dict,
         dg_path,
         base_xyz,
         self.vertex_deformer,
@@ -239,7 +252,7 @@ class GaussianModel:
         self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
         self.rot_mlp.load_state_dict(rot_mlp_state_dict)
         self.scale_mlp.load_state_dict(scale_mlp_state_dict)
-
+        self.features_mlp.load_state_dict(features_mlp_state_dict)
         #SUMO
         self.deform_init(dg_path)
         self.base_xyz=base_xyz.cpu()
@@ -248,8 +261,8 @@ class GaussianModel:
     def restore_step2(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        self._features_dc, 
-        self._features_rest,
+        # self._features_dc, 
+        # self._features_rest,
         # self._scaling,  
         self._opacity,
         self.max_radii2D, 
@@ -261,9 +274,12 @@ class GaussianModel:
         self._xyz_0, 
         self._rotation_0,
         self._scaling_0,  # 新增：恢复缩放参数
+        self._features_dc_0,
+        self._features_rest_0,
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
+        features_mlp_state_dict,
         dg_path,
         self.base_xyz,
         self.vertex_deformer,
@@ -281,7 +297,7 @@ class GaussianModel:
         self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
         self.rot_mlp.load_state_dict(rot_mlp_state_dict)
         self.scale_mlp.load_state_dict(scale_mlp_state_dict)
-
+        self.features_mlp.load_state_dict(features_mlp_state_dict)
         #SUMO
         self.deform_init(dg_path)
         self.base_xyz=self.base_xyz.cpu()
@@ -290,8 +306,8 @@ class GaussianModel:
     def restore_from_keyframe(self, model_args, training_args):
         (
             self.active_sh_degree, 
-        self._features_dc, 
-        self._features_rest,
+        # self._features_dc, 
+        # self._features_rest,
         # self._scaling,  
         self._opacity,
         max_radii2D, 
@@ -303,9 +319,12 @@ class GaussianModel:
         self._xyz_0, 
         self._rotation_0,
         self._scaling_0, 
+        self._features_dc_0,
+        self._features_rest_0,
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
+        features_mlp_state_dict,
         dg_path,
         base_xyz,
         vertex_deformer,
@@ -327,15 +346,18 @@ class GaussianModel:
     #获取必要的参数，不保存缓存
     def capture_render(self):
         return (
-            self._features_dc,
-            self._features_rest,
+            # self._features_dc,
+            # self._features_rest,
             self._opacity,
             self._xyz_0,
             self._rotation_0, 
-            self._scaling_0,  
+            self._scaling_0, 
+            self._features_dc_0,
+            self._features_rest_0,
             self.xyz_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.rot_mlp.state_dict(),   # 新增：保存 MLP 权重
             self.scale_mlp.state_dict(), # 新增：保存 MLP 权重
+            self.features_mlp.state_dict(),
             self.dg,
             self.base_xyz,
             # self.vertex_deformer,
@@ -345,15 +367,18 @@ class GaussianModel:
     #推理时调用的恢复参数
     def restore_render(self, model_args):
         (
-        self._features_dc, 
-        self._features_rest, 
+        # self._features_dc, 
+        # self._features_rest, 
         self._opacity,
         self._xyz_0, 
         self._rotation_0,
-        self._scaling_0,  
+        self._scaling_0, 
+        self._features_dc_0,
+        self._features_rest_0,
         xyz_mlp_state_dict,
         rot_mlp_state_dict,
         scale_mlp_state_dict,
+        features_mlp_state_dict,
         self.dg,
         self.base_xyz,
         
@@ -362,9 +387,11 @@ class GaussianModel:
         self.xyz_mlp.load_state_dict(xyz_mlp_state_dict)
         self.rot_mlp.load_state_dict(rot_mlp_state_dict)
         self.scale_mlp.load_state_dict(scale_mlp_state_dict)
+        self.features_mlp.load_state_dict(features_mlp_state_dict)
         self.xyz_mlp.eval()
         self.rot_mlp.eval()
         self.scale_mlp.eval()
+        self.features_mlp.eval()
         self.vertex_deformer={}
         self.temp_flame_vertices={}
 
@@ -383,17 +410,17 @@ class GaussianModel:
     
     @property
     def get_features(self):
-        features_dc = self._features_dc
-        features_rest = self._features_rest
+        features_dc = self._features_dc_t
+        features_rest = self._features_rest_t
         return torch.cat((features_dc, features_rest), dim=1)
     
     @property
     def get_features_dc(self):
-        return self._features_dc
+        return self._features_dc_t
     
     @property
     def get_features_rest(self):
-        return self._features_rest
+        return self._features_rest_t
     
     @property
     def get_opacity(self):
@@ -450,9 +477,15 @@ class GaussianModel:
 
         self._scaling_0 = nn.Parameter(scales.requires_grad_(True))
         self._scaling_t = scales.clone().detach().to("cuda")  # 纯数据副本，不需要 grad
- 
-        self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+
+        self._features_dc_0 = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_dc_t= features[:,:,0:1].transpose(1, 2).contiguous().clone().detach().to("cuda")  # 纯数据副本
+
+        self._features_rest_0 = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest_t = features[:,:,1:].transpose(1, 2).contiguous().clone().detach().to("cuda")
+
+        # self._features_dc = nn.Parameter(features[:,:,0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        # self._features_rest = nn.Parameter(features[:,:,1:].transpose(1, 2).contiguous().requires_grad_(True))
         # self._scaling = nn.Parameter(scales.requires_grad_(True))
         
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
@@ -475,12 +508,13 @@ class GaussianModel:
             {'params': self.xyz_mlp.parameters(), 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz_mlp"},
             {'params': self.rot_mlp.parameters(), 'lr':  training_args.rotation_lr*0.01, "name": "rot_mlp"},
             {'params': self.scale_mlp.parameters(), 'lr':  training_args.scaling_lr*0.01, "name": "scale_mlp"},
+            {'params': self.features_mlp.parameters(), 'lr':  training_args.feature_lr*0.01, "name": "features_mlp"},
             {'params': [self._xyz_0], 'lr': training_args.position_lr_init * self.spatial_lr_scale, 'name': 'xyz_0'}, 
             {'params': [self._rotation_0], 'lr': training_args.rotation_lr, "name": "rotation_0"},
             {'params': [self._scaling_0], 'lr': training_args.scaling_lr, "name": "scaling_0"},
         
-            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
+            {'params': [self._features_dc_0], 'lr': training_args.feature_lr, "name": "f_dc_0"},
+            {'params': [self._features_rest_0], 'lr': training_args.feature_lr / 20.0, "name": "f_rest_0"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"}
             # {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"}
             ]
@@ -517,10 +551,10 @@ class GaussianModel:
             {'params': self.xyz_mlp.parameters(), 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz_mlp"},
             {'params': self.rot_mlp.parameters(), 'lr':  training_args.rotation_lr*0.01, "name": "rot_mlp"},
             {'params': self.scale_mlp.parameters(), 'lr':  training_args.scaling_lr*0.01, "name": "scale_mlp"},
-
+            {'params': self.features_mlp.parameters(), 'lr':  training_args.feature_lr*0.01, "name": "features_mlp"},
         
-            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
+            # {'params': [self._features_dc_0], 'lr': training_args.feature_lr, "name": "f_dc_0"},
+            # {'params': [self._features_rest_0], 'lr': training_args.feature_lr / 20.0, "name": "f_rest_0"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"}
             ]
 
@@ -560,9 +594,9 @@ class GaussianModel:
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
-        for i in range(self._features_dc.shape[1]*self._features_dc.shape[2]):
+        for i in range(self._features_dc_0.shape[1]*self._features_dc_0.shape[2]):
             l.append('f_dc_{}'.format(i))
-        for i in range(self._features_rest.shape[1]*self._features_rest.shape[2]):
+        for i in range(self._features_rest_0.shape[1]*self._features_rest_0.shape[2]):
             l.append('f_rest_{}'.format(i))
         l.append('opacity')
         for i in range(self._scaling_0.shape[1]):
@@ -644,7 +678,16 @@ class GaussianModel:
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
-        del delta_xyz, delta_rot, delta_scale
+
+        delta_features=self.features_mlp(encoded)  # 计算特征
+        delta_features_dc = delta_features[:, :, :3]  # DC features
+        delta_features_dc=delta_features_dc.squeeze(0)
+        delta_features_rest = delta_features[:, :, 3:]  # Rest features
+        delta_features_rest=delta_features_rest.squeeze(0)
+
+        _features_dc_t = self._features_dc_0 + delta_features_dc.reshape(-1, 1, 3).contiguous()
+        _features_rest_t = self._features_rest_0 + delta_features_rest.reshape(-1, 15, 3).contiguous()
+        del delta_xyz, delta_rot, delta_scale,delta_features
         torch.cuda.empty_cache()
 
 
@@ -652,6 +695,8 @@ class GaussianModel:
             self._xyz_t=_xyz_t
             self._rotation_t=_rotation_t
             self._scaling_t=_scaling_t
+            self._features_dc_t=_features_dc_t
+            self._features_rest_t=_features_rest_t
         return _xyz_t,_rotation_t,_scaling_t
 
     #只使用标准空间的xyz
@@ -700,12 +745,22 @@ class GaussianModel:
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
-        del delta_xyz, delta_rot, delta_scale
+        delta_features=self.features_mlp(encoded)  # 计算特征
+        delta_features_dc = delta_features[:, :, :3]  # DC features
+        delta_features_dc=delta_features_dc.squeeze(0)
+        delta_features_rest = delta_features[:, :, 3:]  # Rest features
+        delta_features_rest=delta_features_rest.squeeze(0)
+
+        _features_dc_t = self._features_dc_0 + delta_features_dc.reshape(-1, 1, 3).contiguous()
+        _features_rest_t = self._features_rest_0 + delta_features_rest.reshape(-1, 15, 3).contiguous()
+        del delta_xyz, delta_rot, delta_scale,delta_features
         torch.cuda.empty_cache()
 
         self._xyz_t=_xyz_t
         self._rotation_t=_rotation_t
         self._scaling_t=_scaling_t
+        self._features_dc_t=_features_dc_t
+        self._features_rest_t=_features_rest_t
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
@@ -717,8 +772,8 @@ class GaussianModel:
         scale = self._scaling_t.detach().cpu().numpy()
 
         normals = np.zeros_like(xyz)
-        f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
-        f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_dc = self._features_dc_t.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest_t.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()
         
         
@@ -779,8 +834,8 @@ class GaussianModel:
         for idx, attr_name in enumerate(rot_names):
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        # self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        # self._features_rest = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
 
             
@@ -788,10 +843,13 @@ class GaussianModel:
         self._xyz_0 = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation_0 = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling_0 = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._features_dc_0 = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest_0 = nn.Parameter(torch.tensor(features_extra, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
         self._xyz_t = self._xyz_0.clone().detach().to("cuda")  # 纯数据副本
         self._rotation_t = self._rotation_0.clone().detach().to("cuda")  # 纯数据副本
         self._scaling_t = self._scaling_0.clone().detach().to("cuda")  # 纯数据副本
-
+        self._features_dc_t = self._features_dc_0.clone().detach().to("cuda")
+        self._features_rest_t = self._features_rest_0.clone().detach().to("cuda")
         self.active_sh_degree = self.max_sh_degree
 
     #SUMO 完善加载ply时未能初始化的参数
@@ -814,6 +872,8 @@ class GaussianModel:
             if group.get("name", "") == "rot_mlp":
                 continue
             if group.get("name", "") == "scale_mlp":
+                continue
+            if group.get("name", "") == "features_mlp":
                 continue
 
 
@@ -839,6 +899,8 @@ class GaussianModel:
             if group.get("name", "") == "rot_mlp":
                 continue
             if group.get("name", "") == "scale_mlp":
+                continue
+            if group.get("name", "") == "features_mlp":
                 continue
 
             stored_state = self.optimizer.state.get(group['params'][0], None)
@@ -871,8 +933,8 @@ class GaussianModel:
         self._scaling_t = self._scaling_0.detach().clone() 
 
          
-        self._features_dc = optimizable_tensors["f_dc"]
-        self._features_rest = optimizable_tensors["f_rest"]
+        self._features_dc_0 = optimizable_tensors["f_dc_0"]
+        self._features_rest_0 = optimizable_tensors["f_rest_0"]
         self._opacity = optimizable_tensors["opacity"]
         # self._scaling = optimizable_tensors["scaling"]
         
@@ -897,6 +959,8 @@ class GaussianModel:
 
             if group.get("name", "") == "scale_mlp":
                 continue
+            if group.get("name", "") == "features_mlp":
+                continue
 
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
@@ -917,10 +981,10 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz_0, new_features_dc, new_features_rest, new_opacities, new_scaling_0, new_rotation_0, new_tmp_radii):
+    def densification_postfix(self, new_xyz_0, new_features_dc_0, new_features_rest_0, new_opacities, new_scaling_0, new_rotation_0, new_tmp_radii):
         d = {
-        "f_dc": new_features_dc,
-        "f_rest": new_features_rest,
+        "f_dc_0": new_features_dc_0,
+        "f_rest_0": new_features_rest_0,
         "opacity": new_opacities,
         #WDD
         "xyz_0":new_xyz_0,
@@ -939,8 +1003,10 @@ class GaussianModel:
         self._scaling_t = self._scaling_0.detach().clone()
 
 
-        self._features_dc = optimizable_tensors["f_dc"]
-        self._features_rest = optimizable_tensors["f_rest"]
+        self._features_dc_0 = optimizable_tensors["f_dc_0"]
+        self._features_dc_t = self._features_dc_0.clone().detach()
+        self._features_rest_0 = optimizable_tensors["f_rest_0"]
+        self._features_rest_t = self._features_rest_0.clone().detach()
         self._opacity = optimizable_tensors["opacity"]
         
         
@@ -976,12 +1042,12 @@ class GaussianModel:
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
         new_rotation = self._rotation_0[selected_pts_mask].repeat(N,1)
 
-        new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
-        new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
+        new_features_dc_0 = self._features_dc_0[selected_pts_mask].repeat(N,1,1)
+        new_features_rest_0 = self._features_rest_0[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
         new_tmp_radii = self.tmp_radii[selected_pts_mask].repeat(N)
 
-        self.densification_postfix(new_xyz_0, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_tmp_radii)
+        self.densification_postfix(new_xyz_0, new_features_dc_0, new_features_rest_0, new_opacity, new_scaling, new_rotation, new_tmp_radii)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -998,8 +1064,8 @@ class GaussianModel:
         #SUMO
         new_scaling_0 = self._scaling_0[selected_pts_mask]
         
-        new_features_dc = self._features_dc[selected_pts_mask]
-        new_features_rest = self._features_rest[selected_pts_mask]
+        new_features_dc = self._features_dc_0[selected_pts_mask]
+        new_features_rest = self._features_rest_0[selected_pts_mask]
         new_opacities = self._opacity[selected_pts_mask]
         
         
