@@ -157,7 +157,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     if dataset.white_background:
                         background_image = torch.ones_like(gt_image)  # 白色背景
                         gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    elif dataset.random_background:
+                    elif opt.random_background:
                         background_image = torch.ones_like(gt_image)  # 随机背景
                         background_image[0,::]=bg[0]
                         background_image[1,::]=bg[1]
@@ -174,10 +174,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 codedict['kid'] = viewpoint_cam.kid
                 
                 #SUMO 标准空间的约束项，令其与第0帧一致
-                if viewpoint_cam.kid==0:
-                    gaussians.forward_x0()
-                else:
-                    gaussians.forward(codedict,update=True)
+                # if viewpoint_cam.kid==0:
+                #     gaussians.forward_x0()
+                # else:
+                gaussians.forward(codedict,update=True)
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 
@@ -368,6 +368,6 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args),  args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 
     print("\nTraining complete.")

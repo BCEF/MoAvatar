@@ -13,16 +13,16 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                        "--resolution","-1",
-                        // "-w",
-                        // "-s","/home/momo/Desktop/data/ali/cc01data/keyframes/",
-                        "-s",//"/home/momo/Desktop/data/ali/cc01data/frames/",
-                        "/home/momo/Desktop/data/cjy_data/data/",
-                        "--model_path",//"/home/momo/Desktop/data/ali/cc01data/output/09_frames",
-                        "/home/momo/Desktop/data/cjy_data/output",
-                        "--start_checkpoint",//"/home/momo/Desktop/data/ali/cc01data/output/09_frames/chkpnt39000.pth",
-                        "/home/momo/Desktop/data/cjy_data/chkpnt57000.pth",
-                        // "--step3_checkpoint","/home/momo/Desktop/data/ali/cc01data/output/09_frames/chkpnt239000.pth",
+                        "--resolution","2",
+                        "-w",
+                        "-s","/home/momo/Desktop/data/cjy_data/data/",
+                        // "-s","/home/momo/Desktop/data/ali/cc01data/frames/",
+                   
+                        "--model_path","/home/momo/Desktop/data/cjy_data/output/",
+                    
+                        // "--start_checkpoint","/home/momo/Desktop/data/cjy_data/output/chkpnt40000.pth",
+                        
+                        "--step3_checkpoint","/home/momo/Desktop/data/cjy_data/output/chkpnt104000.pth",
                         // "--init_ply_path","/home/momo/Desktop/data/ali/cc01data/point_cloud_12000.ply"
                     ],
         }
