@@ -130,7 +130,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                 iter_start.record()
 
-                # step2 :不优化标准空间
+               
                 local_iteration = iteration - batch_start_iter + 1
                 gaussians.update_learning_rate(global_iteration)
 
