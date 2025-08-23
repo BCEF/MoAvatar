@@ -1,0 +1,23 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": ["--resolution","2",
+                    "-w",
+                    // "-s","/home/momo/Desktop/flame_data/data2560/",
+                    "-s","/media/momo/70238a53-6d7a-4844-9d1f-6232445909dd/momo/Desktop/data/0724/data",
+                    "--model_path","/home/momo/Desktop/flame_data/output/test01",
+                    // "--keyframe_checkpoint","/home/momo/Desktop/flame_data/output/test01/chkpnt20000.pth",
+                    "--start_checkpoint","/home/momo/Desktop/flame_data/output/test01/chkpnt205000.pth"
+                    ]
+        }
+    ]
+}

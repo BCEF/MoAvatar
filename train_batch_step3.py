@@ -60,7 +60,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     scene = Scene(dataset, gaussians)
     gaussians.training_setup_freeze_x0(opt)
     if keyframe_checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint,weights_only=False,map_location="cuda")
+        (model_params, first_iter) = torch.load(keyframe_checkpoint,weights_only=False,map_location="cuda")
         gaussians.restore_from_keyframe(model_params, opt)
 
     if checkpoint:
@@ -275,10 +275,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                             gaussians.optimizer.zero_grad(set_to_none = True)
 
                     
-                    if local_iteration < opt.densify_until_iter:
-                        #不执行稠密化和剪枝
-                        if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                            gaussians.reset_opacity()
+                    # if local_iteration < opt.densify_until_iter:
+                    #     #不执行稠密化和剪枝
+                    #     if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
+                    #         gaussians.reset_opacity()
                     
                             
                     # 使用全局iteration进行检查点保存
@@ -373,7 +373,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     args.iterations=2000
-    
+    # args.batchnum=10
     print("Optimizing " + args.model_path)
 
     safe_state(args.quiet)
