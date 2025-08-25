@@ -20,7 +20,8 @@ from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from scene.dataset_readers import SceneInfo
 import torch
 import gc
-from utils.general_utils import quantize_by_decimal
+# from utils.general_utils import quantize_by_decimal
+from utils.param_model_utils import load_flame_codedict,load_smplx_codedict
 class Scene:
 
     gaussians : GaussianModel
@@ -60,7 +61,7 @@ class Scene:
         
         #WDD 增加了FLAME的调用
         if has_frame_file(args.source_path): 
-            scene_info=sceneLoadTypeCallbacks["Flame"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
+            scene_info=sceneLoadTypeCallbacks["ParamsGeo"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.depths, args.eval, args.train_test_exp)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
@@ -74,7 +75,7 @@ class Scene:
         self.loadSceneInfo(args, shuffle)
 
     #SUMO
-    def loadMultiFrameSceneInfo(self,args,shuffle=True):
+    def loadMultiFrameSceneInfo(self,args,shuffle=True,params_type="smplx"):
         self.train_cameras = {}
         self.test_cameras = {}
         self.flame_codes={}
@@ -92,13 +93,17 @@ class Scene:
             colmap_folder=os.path.join(frame_folder,'sparse/0')
             if not os.path.exists(colmap_folder):
                 colmap_folder = os.path.join(root_folder, 'sparse/0')
-            # flame_path=os.path.join(args.source_path,'flame',subfolder,'.frame')
-            flame_path=os.path.join(frame_folder,'flame.frame')
+            if params_type=="smplx":
+                flame_path=os.path.join(frame_folder,"smplx.pkl")
+            elif params_type=="flame":
+                flame_path=os.path.join(frame_folder,'flame.frame')
+            else:
+                flame_path=None
             alpha_folder=os.path.join(frame_folder,'alpha')
             head_folder=os.path.join(frame_folder,'neckhead')
             mouth_folder=os.path.join(frame_folder,'mouth')
 
-            scene_info=sceneLoadTypeCallbacks["Flame"](frame_folder,args.images, args.depths, args.eval, args.train_test_exp,
+            scene_info=sceneLoadTypeCallbacks["ParamsGeo"](frame_folder,args.images, args.depths, args.eval, args.train_test_exp,
                                                        colmap_folder=colmap_folder,flame_path=flame_path,
                                                        alpha_folder=alpha_folder,head_folder=head_folder,mouth_folder=mouth_folder,
                                                        kid=kid,timecode=timecode)
@@ -144,45 +149,15 @@ class Scene:
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
 
-    def loadFlameCodes(self,flame_path,kid,timecode):
-        payload=torch.load(flame_path,weights_only=False)
-        flame_params = {}
-        if 'flame' in payload:
-            flame_data = payload['flame']
-            flame_params = {
-                'shape': flame_data.get('shape', None),
-                'exp': flame_data.get('exp', None),
-                'global_rotation': flame_data.get('global_rotation', None),
-                'jaw': flame_data.get('jaw', None),
-                'neck': flame_data.get('neck', None),
-                'eyes': flame_data.get('eyes', None),
-                'transl': flame_data.get('transl', None),
-                'scale_factor': flame_data.get('scale_factor', None)
-            }
-            shape_params = torch.as_tensor(flame_params['shape']).to("cuda")
-            expression_params = torch.as_tensor(flame_params['exp']).to("cuda")
-            
-            # Process pose parameters
-            global_rotation = torch.as_tensor(flame_params.get('global_rotation', torch.zeros(3))).to("cuda")
-            jaw_pose = torch.as_tensor(flame_params.get('jaw', torch.zeros(3))).to("cuda")
-            neck_pose = torch.as_tensor(flame_params.get('neck', torch.zeros(3))).to("cuda")
-            eye_pose = torch.as_tensor(flame_params['eyes']).to("cuda")
-            transl_pose = torch.as_tensor(flame_params.get('transl', torch.zeros(3))).to("cuda")
-            scale_factor = torch.as_tensor(flame_params.get('scale_factor', torch.ones(1))).reshape(shape_params.shape[0],1).to("cuda")
-            
-
-            return {
-            'shape':shape_params,
-            'exp': expression_params,
-            'global_rotation': global_rotation,
-            'jaw': jaw_pose,
-            'neck': neck_pose,
-            'eyes': eye_pose,
-            'transl': transl_pose,
-            'scale_factor': scale_factor,
-            'kid':kid,
-            't':timecode
-            }
+    def loadFlameCodes(self,flame_path:str,kid,timecode):
+        if flame_path.endswith("frame"):
+            codedict=load_flame_codedict(flame_path)
+            codedict["kid"]=kid
+            codedict["t"]=timecode
+        elif flame_path.endswith(".pkl"):
+            codedict=load_smplx_codedict(flame_path)
+            codedict["kid"]=kid
+            codedict["t"]=timecode
         return None
 
     # def loadTrainCameras(self, cam_infos=None, resolution_scale=1.0):

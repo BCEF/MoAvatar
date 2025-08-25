@@ -25,15 +25,18 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 #WDD
 from scene.deform_model import positional_encoding,MLP,SIREN
 #SUMO
+import smplx
 from flame_pytorch import FLAME, parse_args
 import trimesh
 from deformation_graph import apply_deformation_to_gaussians,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 import time
+from utils.param_model_utils import generate_flame_geometry,generate_smplx_geometry
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
 except:
     pass
+
 
 
 
@@ -69,14 +72,10 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
 
-    def __init__(self, sh_degree,optimizer_type="default"):
+    def __init__(self, sh_degree,optimizer_type="default",params_model_type="smplx"):
         self.active_sh_degree = 0
         self.optimizer_type = optimizer_type
         self.max_sh_degree = sh_degree  
-         
-        # self._features_dc = torch.empty(0)
-        # self._features_rest = torch.empty(0)
-        # self._scaling = torch.empty(0)
         self._opacity = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
@@ -85,8 +84,6 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
-
-
         #WDD
         #新增
         self._xyz_0= torch.empty(0)
@@ -114,23 +111,32 @@ class GaussianModel:
         self.dg=None
         self.temp_flame_vertices=None
         self._edge_indices=None
-
-        flame_config = parse_args()
-        self.flame_model = FLAME(flame_config).to("cuda")
-        flame_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
-
+        shape_params_dim=0
+        self.params_model_type=params_model_type
+        if params_model_type=="flame":
+            flame_config = parse_args()
+            self.params_model = FLAME(flame_config).to("cuda")
+            shape_params_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
+        elif params_model_type=="smplx":
+            self.params_model=smplx.create("models", 
+                        model_type='smplx', 
+                        gender='neutral',
+                        num_betas=300,
+                        num_expression_coeffs=100,
+                        num_pca_comps=0)
+            shape_params_dim=170
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
         #self.xyz_mlp = MLP(input_dim=dim_encoded, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
         # 替换
-        self.xyz_mlp = SIREN(input_dim=dim_encoded+flame_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
+        self.xyz_mlp = SIREN(input_dim=dim_encoded+shape_params_dim, output_dim=3, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
 
         #self.rot_mlp = SIREN(input_dim=dim_encoded, output_dim=4, hidden_dim=256, hidden_layers=8, omega_0=30.0).to(device='cuda')
-        self.rot_mlp = MLP(input_dim=dim_encoded+flame_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        self.rot_mlp = MLP(input_dim=dim_encoded+shape_params_dim, output_dim=4, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
         #SUMO
-        self.scale_mlp=MLP(input_dim=dim_encoded+flame_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
-        self.features_mlp=MLP(input_dim=dim_encoded+flame_dim, output_dim=48, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        self.scale_mlp=MLP(input_dim=dim_encoded+shape_params_dim, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
+        self.features_mlp=MLP(input_dim=dim_encoded+shape_params_dim, output_dim=48, hidden_dim=256, hidden_layers=8).to(device='cuda')
 
         #WDD
         self.inverse_deform_transforms={}
@@ -150,29 +156,11 @@ class GaussianModel:
         if self.temp_flame_vertices is None:
             self.temp_flame_vertices = {}
     
-    def generate_flame_geometry(self, codedict):
-        shape_param = codedict['shape'].detach()
-        exp_param = codedict['exp'].detach()
-        global_rotation = codedict['global_rotation'].detach()
-        jaw_pose = codedict['jaw'].detach()
-        neck_pose=codedict['neck'].detach()
-        eyes_pose = codedict['eyes'].detach()
-        transl = codedict['transl'].detach()
-        scale_factor=codedict['scale_factor'].detach()
-
-        pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
-        geometry = self.flame_model.forward_geo(
-            shape_params=shape_param,
-            expression_params=exp_param,
-            pose_params=pose_params,
-            neck_pose=neck_pose,
-            eye_pose=eyes_pose,
-            transl=transl,
-            scale_factor= scale_factor
-        )
-        return geometry.squeeze(0)
-        
-        
+    def generate_params_geometry(self, codedict):
+        if self.params_model_type=="flame":
+            return generate_flame_geometry(codedict,self.params_model)
+        elif self.params_model_type=="smplx":
+            return generate_smplx_geometry(codedict,self.params_model)
 
     def capture(self):
         return (
@@ -534,13 +522,39 @@ class GaussianModel:
         ], dim=-1)
         return new_q / (torch.norm(new_q, dim=-1, keepdim=True) + 1e-8)
 
+    def cat_codedict_tensor(self,codedict):
+        transl = codedict['transl'].detach()
+        batch_size = transl.shape[0]
+        device=transl.device
+        t= torch.as_tensor(codedict['t']).to(device).reshape(batch_size, 1) # time parameter
+
+        if self.params_model_type=="flame":
+            # shape_param = codedict['shape'].detach()
+            exp_param = codedict['exp'].detach()
+            global_rotation = codedict['global_rotation'].detach()
+            jaw_pose = codedict['jaw'].detach()
+            neck_pose=codedict['neck'].detach()
+            eyes_pose = codedict['eyes'].detach()
+            transl = codedict['transl'].detach()
+            scale_factor=codedict['scale_factor'].detach()
+            pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
+            condition = torch.cat((t,exp_param, pose_params, neck_pose,eyes_pose,transl,scale_factor), dim=1)
+        elif self.params_model_type=="smplx":
+            # betas = codedict['betas'].detach()
+            expression =codedict['expression'].detach()
+            body_pose = codedict['body_pose'].detach()
+            global_orient = codedict['global_orient'].detach()
+            transl = codedict['transl'].detach()
+            condition=torch.cat((t,expression,body_pose,global_orient,transl),dim=1)
+        return condition.to("cuda")
+
     #WDD    
     # 前向传播函数，计算当前帧的动态点坐标
     def forward(self, codedict=None,update=False):
         kid=codedict['kid'] 
         if kid not in self.temp_flame_vertices or self.temp_flame_vertices[kid].shape[0]!=self._xyz_0.shape[0]:
-            base_geometry = self.generate_flame_geometry(self.canonical_flame_code)
-            current_geometry = self.generate_flame_geometry(codedict)
+            base_geometry = self.generate_params_geometry(self.canonical_flame_code)
+            current_geometry = self.generate_params_geometry(codedict)
             transforms=compute_deformation_transforms(self.dg,base_geometry.cpu().numpy(),current_geometry.cpu().numpy())
             st=time.time()
             deform_points=apply_deformation_to_gaussians(self.dg,self._xyz_0.detach().cpu().clone().numpy(),transforms)
@@ -550,8 +564,8 @@ class GaussianModel:
 
         #WDD
         if kid not in self.inverse_deform_transforms:
-            base_geometry = self.generate_flame_geometry(self.canonical_flame_code)
-            current_geometry = self.generate_flame_geometry(codedict)
+            base_geometry = self.generate_params_geometry(self.canonical_flame_code)
+            current_geometry = self.generate_params_geometry(codedict)
             self.inverse_deform_transforms[kid]=compute_deformation_transforms(self.dg,current_geometry.cpu().numpy(),base_geometry.cpu().numpy())
 
 
@@ -560,20 +574,20 @@ class GaussianModel:
         encoded = encoded.unsqueeze(0)  # (1, N, 51)
 
         #SUMO
-        shape_param = codedict['shape'].detach()
-        exp_param = codedict['exp'].detach()
-        global_rotation = codedict['global_rotation'].detach()
-        jaw_pose = codedict['jaw'].detach()
-        neck_pose=codedict['neck'].detach()
-        eyes_pose = codedict['eyes'].detach()
-        transl = codedict['transl'].detach()
-        scale_factor=codedict['scale_factor'].detach()
-        batch_size = shape_param.shape[0]
-        t= torch.as_tensor(codedict['t']).to(scale_factor.device).reshape(batch_size, 1) # time parameter
+        # shape_param = codedict['shape'].detach()
+        # exp_param = codedict['exp'].detach()
+        # global_rotation = codedict['global_rotation'].detach()
+        # jaw_pose = codedict['jaw'].detach()
+        # neck_pose=codedict['neck'].detach()
+        # eyes_pose = codedict['eyes'].detach()
+        # transl = codedict['transl'].detach()
+        # scale_factor=codedict['scale_factor'].detach()
+        # batch_size = transl.shape[0]
+        # t= torch.as_tensor(codedict['t']).to(transl.device).reshape(batch_size, 1) # time parameter
 
-        pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
-        condition = torch.cat((t,exp_param, pose_params, neck_pose,eyes_pose,transl,scale_factor), dim=1)
-
+        # pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
+        # condition = torch.cat((t,exp_param, pose_params, neck_pose,eyes_pose,transl,scale_factor), dim=1)
+        condition=self.cat_codedict_tensor(codedict)
         condition = condition.unsqueeze(1).repeat(1, encoded.shape[1], 1)
 
         encoded = torch.cat((encoded, condition), dim=2)

@@ -23,7 +23,8 @@ class Camera(nn.Module):
                  train_test_exp = False, is_test_dataset = False, is_test_view = False,
                  # 添加新的参数
                  kid=0,timecode=0.0,alpha=None, head_mask=None, mouth_mask=None,
-                 shape_param=None,exp_param=None, global_rotation=None, jaw_pose=None, neck_pose=None, eyes_pose=None, transl=None,scale_factor=None
+                 shape_params=None
+                #  shape_param=None,exp_param=None, global_rotation=None, jaw_pose=None, neck_pose=None, eyes_pose=None, transl=None,scale_factor=None
                  ):
         super(Camera, self).__init__()
 
@@ -47,16 +48,16 @@ class Camera(nn.Module):
         resized_image_rgb = PILtoTorch(image, resolution)
         gt_image = resized_image_rgb[:3, ...]
         self.alpha_mask = None
-        if resized_image_rgb.shape[0] == 4:
-            self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
-        else: 
-            self.alpha_mask = torch.ones_like(resized_image_rgb[0:1, ...].to(self.data_device))
+        # if resized_image_rgb.shape[0] == 4:
+        #     self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
+        # else: 
+        #     self.alpha_mask = torch.ones_like(resized_image_rgb[0:1, ...].to(self.data_device))
 
-        if train_test_exp and is_test_view:
-            if is_test_dataset:
-                self.alpha_mask[..., :self.alpha_mask.shape[-1] // 2] = 0
-            else:
-                self.alpha_mask[..., self.alpha_mask.shape[-1] // 2:] = 0
+        # if train_test_exp and is_test_view:
+        #     if is_test_dataset:
+        #         self.alpha_mask[..., :self.alpha_mask.shape[-1] // 2] = 0
+        #     else:
+        #         self.alpha_mask[..., self.alpha_mask.shape[-1] // 2:] = 0
 
         self.original_image = gt_image.clamp(0.0, 1.0).to(self.data_device)
         self.image_width = self.original_image.shape[2]
@@ -127,95 +128,8 @@ class Camera(nn.Module):
                 print(f"Warning: Failed to process mouth mask: {e}")
                 self.mouth_mask = None
 
-        # 处理FLAME参数
-        self.shape_param = None
-        if shape_param is not None:
-            try:
-                if isinstance(shape_param, torch.Tensor):
-                    self.shape_param = shape_param.to(self.data_device)
-                else:
-                    self.shape_param = torch.as_tensor(shape_param).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process exp_param: {e}")
-                self.shape_param = None
-
-        self.exp_param = None
-        if exp_param is not None:
-            try:
-                if isinstance(exp_param, torch.Tensor):
-                    self.exp_param = exp_param.to(self.data_device)
-                else:
-                    self.exp_param = torch.as_tensor(exp_param).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process exp_param: {e}")
-                self.exp_param = None
-
-        self.global_rotation = None
-        if global_rotation is not None:
-            try:
-                if isinstance(global_rotation, torch.Tensor):
-                    self.global_rotation = global_rotation.to(self.data_device)
-                else:
-                    self.global_rotation = torch.as_tensor(global_rotation).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process global_rotation: {e}")
-                self.global_rotation = None
-
-        self.jaw_pose = None
-        if jaw_pose is not None:
-            try:
-                if isinstance(jaw_pose, torch.Tensor):
-                    self.jaw_pose = jaw_pose.to(self.data_device)
-                else:
-                    self.jaw_pose = torch.as_tensor(jaw_pose).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process jaw_pose: {e}")
-                self.jaw_pose = None
-
-        self.neck_pose = None
-        if neck_pose is not None:
-            try:
-                if isinstance(neck_pose, torch.Tensor):
-                    self.neck_pose = neck_pose.to(self.data_device)
-                else:
-                    self.neck_pose = torch.as_tensor(neck_pose).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process neck_pose: {e}")
-                self.neck_pose = None
-
-        self.eyes_pose = None
-        if eyes_pose is not None:
-            try:
-                if isinstance(eyes_pose, torch.Tensor):
-                    self.eyes_pose = eyes_pose.to(self.data_device)
-                else:
-                    self.eyes_pose = torch.as_tensor(eyes_pose).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process eyes_pose: {e}")
-                self.eyes_pose = None
-
-        self.transl = None
-        if transl is not None:
-            try:
-                if isinstance(transl, torch.Tensor):
-                    self.transl = transl.to(self.data_device)
-                else:
-                    self.transl = torch.as_tensor(transl).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process transl: {e}")
-                self.transl = None
-        
-        self.scale_factor = None
-        if scale_factor is not None:
-            try:
-                if isinstance(scale_factor, torch.Tensor):
-                    self.scale_factor = scale_factor.to(self.data_device)
-                else:
-                    self.scale_factor = torch.as_tensor(scale_factor).to(self.data_device)
-            except Exception as e:
-                print(f"Warning: Failed to process scale_factor: {e}")
-                self.scale_factor = None
-        #end SUMO
+        #SUMO
+        self.shape_params=shape_params
 
         self.invdepthmap = None
         self.depth_reliable = False
@@ -259,29 +173,31 @@ class Camera(nn.Module):
         return self.mouth_mask is not None
     
     def has_flame_params(self):
-        return any([
-            self.exp_param is not None,
-            self.global_rotation is not None,
-            self.jaw_pose is not None,
-            self.neck_pose is not None,
-            self.eyes_pose is not None,
-            self.transl is not None,
-            self.scale_factor is not None
-        ])
+        # return any([
+        #     self.exp_param is not None,
+        #     self.global_rotation is not None,
+        #     self.jaw_pose is not None,
+        #     self.neck_pose is not None,
+        #     self.eyes_pose is not None,
+        #     self.transl is not None,
+        #     self.scale_factor is not None
+        # ])
+        return self.shape_params is not None
     
     def get_flame_params(self):
-        """返回所有FLAME参数的字典"""
+        # """返回所有FLAME参数的字典"""
         
-        return {
-            'shape':self.shape_param,
-            'exp': self.exp_param,
-            'global_rotation': self.global_rotation,
-            'jaw': self.jaw_pose,
-            'neck': self.neck_pose,
-            'eyes': self.eyes_pose,
-            'transl': self.transl,
-            'scale_factor': self.scale_factor
-        }
+        # return {
+        #     'shape':self.shape_param,
+        #     'exp': self.exp_param,
+        #     'global_rotation': self.global_rotation,
+        #     'jaw': self.jaw_pose,
+        #     'neck': self.neck_pose,
+        #     'eyes': self.eyes_pose,
+        #     'transl': self.transl,
+        #     'scale_factor': self.scale_factor
+        # }
+        return self.shape_params
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
         self.image_width = width

@@ -10,13 +10,13 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "args": ["--resolution","2",
+            "args": ["--resolution","1",
                     "-w",
                     // "-s","/home/momo/Desktop/flame_data/data2560/",
-                    "-s","/media/momo/70238a53-6d7a-4844-9d1f-6232445909dd/momo/Desktop/data/0724/data",
-                    "--model_path","/home/momo/Desktop/flame_data/output/test01",
+                    "-s","/media/momo/70238a53-6d7a-4844-9d1f-6232445909dd/momo/Desktop/data/cjy_data/data",
+                    "--model_path","/home/momo/Desktop/flame_data/output/test02",
                     // "--keyframe_checkpoint","/home/momo/Desktop/flame_data/output/test01/chkpnt20000.pth",
-                    "--start_checkpoint","/home/momo/Desktop/flame_data/output/test01/chkpnt205000.pth"
+                    // "--start_checkpoint","/home/momo/Desktop/flame_data/output/test01/chkpnt205000.pth"
                     ]
         }
     ]

@@ -22,7 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-from flame_pytorch import FLAME, parse_args
+from utils.param_model_utils import create_np_flame_geometry,create_np_smplx_geometry
 
 import torch
 
@@ -45,9 +45,10 @@ class CameraInfo:
     alpha_path: str = ""
     head_mask_path: str = ""
     mouth_mask_path: str = ""
-    flame_params: dict = None
+    # flame_params: dict = None
     kid:int=0
-    timecode: float = 0.0  
+    timecode: float = 0.0
+    params_path:str=""
 
 @dataclass
 class SceneInfo:
@@ -371,22 +372,152 @@ def save_pcd_ply(vertices,ply_path):
     return pcd
 
 
+# #WDD 读取 包含FLAME的数据
+# def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
+#     sparse_folder=os.path.join(path, "sparse/0") if colmap_folder is None else colmap_folder
 
+#     #try:
+#     cameras_extrinsic_file = os.path.join(sparse_folder, "images.bin")
+#     cameras_intrinsic_file = os.path.join(sparse_folder, "cameras.bin")
+#     cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
+#     cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+#     #except:
+#     #    cameras_extrinsic_file = os.path.join(sparse_folder, "images.txt")
+#     #    cameras_intrinsic_file = os.path.join(sparse_folder, "cameras.txt")
+#     #    cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+#     #    cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
-#WDD 读取 包含FLAME的数据
-def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
+#     depth_params_file = os.path.join(sparse_folder, "depth_params.json")
+#     ## if depth_params_file isnt there AND depths file is here -> throw error
+#     depths_params = None
+#     if depths != "":
+#         try:
+#             with open(depth_params_file, "r") as f:
+#                 depths_params = json.load(f)
+#             all_scales = np.array([depths_params[key]["scale"] for key in depths_params])
+#             if (all_scales > 0).sum():
+#                 med_scale = np.median(all_scales[all_scales > 0])
+#             else:
+#                 med_scale = 0
+#             for key in depths_params:
+#                 depths_params[key]["med_scale"] = med_scale
+
+#         except FileNotFoundError:
+#             print(f"Error: depth_params.json file not found at path '{depth_params_file}'.")
+#             sys.exit(1)
+#         except Exception as e:
+#             print(f"An unexpected error occurred when trying to open depth_params.json file: {e}")
+#             sys.exit(1)
+
+#     if eval:
+#         if "360" in path:
+#             llffhold = 8
+#         if llffhold:
+#             print("------------LLFF HOLD-------------")
+#             cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
+#             cam_names = sorted(cam_names)
+#             test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
+#         else:
+#             with open(os.path.join(sparse_folder, "test.txt"), 'r') as file:
+#                 test_cam_names_list = [line.strip() for line in file]
+#     else:
+#         test_cam_names_list = []
+
+#     reading_dir = "images" if images == None else images
+#     cam_infos_unsorted = readColmapCameras(
+#         cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, depths_params=depths_params,
+#         images_folder=os.path.join(path, reading_dir), 
+#         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=test_cam_names_list,
+#         )
+
+#     ply_path = os.path.join(path, "input.ply")
+#     flame_path=os.path.join(path,"flame.frame") if flame_path==None else flame_path
+#     payload=torch.load(flame_path,weights_only=False)
+#     flame_params = {}
+#     if 'flame' in payload:
+#         flame_data = payload['flame']
+#         flame_params = {
+#             'shape': flame_data.get('shape', None),
+#             'exp': flame_data.get('exp', None),
+#             'global_rotation': flame_data.get('global_rotation', None),
+#             'jaw': flame_data.get('jaw', None),
+#             'neck': flame_data.get('neck', None),
+#             'eyes': flame_data.get('eyes', None),
+#             'transl': flame_data.get('transl', None),
+#             'scale_factor': flame_data.get('scale_factor', None)
+#         }
+#         # pcd=None
+#         # if not os.path.exists(ply_path): 
+#         # Extract FLAME parameters
+#         shape_params = torch.as_tensor(flame_params['shape']) if 'shape' in flame_params else None
+#         expression_params = torch.as_tensor(flame_params['exp']) if 'exp' in flame_params else None
+        
+#         # Process pose parameters
+#         global_rotation = torch.as_tensor(flame_params.get('global_rotation', torch.zeros(3))) if 'global_rotation' in flame_params else torch.zeros(3)
+#         jaw_pose = torch.as_tensor(flame_params.get('jaw', torch.zeros(3))) if 'jaw' in flame_params else torch.zeros(3)
+#         neck_pose = torch.as_tensor(flame_params.get('neck', torch.zeros(3))) if 'neck' in flame_params else torch.zeros(3)
+#         eye_pose = torch.as_tensor(flame_params['eyes']) if 'eyes' in flame_params else torch.zeros(6)
+#         transl_pose = torch.as_tensor(flame_params.get('transl', torch.zeros(3))) if 'transl' in flame_params else torch.zeros(3)
+#         scale_factor = torch.as_tensor(flame_params.get('scale_factor', torch.ones(1))) if 'scale_factor' in flame_params else torch.ones(1)
+#         pose_params = torch.cat([global_rotation, jaw_pose], dim=1)
+        
+        
+#         try:
+#             config = parse_args()
+#             flamelayer = FLAME(config)
+#             # Generate FLAME vertices and landmarks
+#             # vertices, landmarks = flamelayer(
+#             #     shape_params, expression_params, pose_params, neck_pose, eye_pose, transl_pose
+#             # )
+
+#             vertices=flamelayer.forward_geo_subdivided(
+#                 shape_params, expression_params, pose_params, neck_pose, eye_pose, transl_pose,scale_factor,1
+#             )
+            
+#             # Convert vertices to numpy and add to list
+#             if isinstance(vertices, torch.Tensor):
+#                 vertices_np = vertices.detach().cpu().numpy()
+#                 if vertices_np.ndim == 3:  # If has batch dimension, take first
+#                     vertices_np = vertices_np[0]
+#                 # vertices_np = vertices_np * scale_factor.cpu().numpy()  # Apply scaling factor
+#                 pcd=save_pcd_ply(vertices_np,ply_path)
+            
+#         except Exception as e:
+#             print(f"\nWarning: Failed to generate FLAME vertices : {e}")
+
+#     for camera_info in cam_infos_unsorted:
+#         alpha_reading_dir = "alpha" if alpha_folder == None else alpha_folder
+#         neckhead_reading_dir="neckhead" if head_folder==None else head_folder
+#         mouth_reading_dir="mouth" if mouth_folder==None else mouth_folder
+#         camera_info.alpha_path=os.path.join(path,alpha_reading_dir,camera_info.image_name)
+#         camera_info.head_mask_path=os.path.join(path,neckhead_reading_dir,camera_info.image_name)
+#         camera_info.mouth_mask_path=os.path.join(path,mouth_reading_dir,camera_info.image_name)
+#         camera_info.flame_params=flame_params
+#         camera_info.kid=kid
+#         camera_info.timecode=timecode
+
+#     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
+
+#     train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
+#     test_cam_infos = [c for c in cam_infos if c.is_test]
+
+#     nerf_normalization = getNerfppNorm(train_cam_infos)
+
+#     scene_info = SceneInfo(point_cloud=pcd,
+#                            train_cameras=train_cam_infos,
+#                            test_cameras=test_cam_infos,
+#                            nerf_normalization=nerf_normalization,
+#                            ply_path=ply_path,
+#                            is_nerf_synthetic=False)
+#     return scene_info
+
+def readFlameSmplxSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
     sparse_folder=os.path.join(path, "sparse/0") if colmap_folder is None else colmap_folder
 
-    #try:
     cameras_extrinsic_file = os.path.join(sparse_folder, "images.bin")
     cameras_intrinsic_file = os.path.join(sparse_folder, "cameras.bin")
     cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
     cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
-    #except:
-    #    cameras_extrinsic_file = os.path.join(sparse_folder, "images.txt")
-    #    cameras_intrinsic_file = os.path.join(sparse_folder, "cameras.txt")
-    #    cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
-    #    cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     depth_params_file = os.path.join(sparse_folder, "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
@@ -432,60 +563,11 @@ def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,co
         )
 
     ply_path = os.path.join(path, "input.ply")
-    flame_path=os.path.join(path,"flame.frame") if flame_path==None else flame_path
-    payload=torch.load(flame_path,weights_only=False)
-    flame_params = {}
-    if 'flame' in payload:
-        flame_data = payload['flame']
-        flame_params = {
-            'shape': flame_data.get('shape', None),
-            'exp': flame_data.get('exp', None),
-            'global_rotation': flame_data.get('global_rotation', None),
-            'jaw': flame_data.get('jaw', None),
-            'neck': flame_data.get('neck', None),
-            'eyes': flame_data.get('eyes', None),
-            'transl': flame_data.get('transl', None),
-            'scale_factor': flame_data.get('scale_factor', None)
-        }
-        # pcd=None
-        # if not os.path.exists(ply_path): 
-        # Extract FLAME parameters
-        shape_params = torch.as_tensor(flame_params['shape']) if 'shape' in flame_params else None
-        expression_params = torch.as_tensor(flame_params['exp']) if 'exp' in flame_params else None
-        
-        # Process pose parameters
-        global_rotation = torch.as_tensor(flame_params.get('global_rotation', torch.zeros(3))) if 'global_rotation' in flame_params else torch.zeros(3)
-        jaw_pose = torch.as_tensor(flame_params.get('jaw', torch.zeros(3))) if 'jaw' in flame_params else torch.zeros(3)
-        neck_pose = torch.as_tensor(flame_params.get('neck', torch.zeros(3))) if 'neck' in flame_params else torch.zeros(3)
-        eye_pose = torch.as_tensor(flame_params['eyes']) if 'eyes' in flame_params else torch.zeros(6)
-        transl_pose = torch.as_tensor(flame_params.get('transl', torch.zeros(3))) if 'transl' in flame_params else torch.zeros(3)
-        scale_factor = torch.as_tensor(flame_params.get('scale_factor', torch.ones(1))) if 'scale_factor' in flame_params else torch.ones(1)
-        pose_params = torch.cat([global_rotation, jaw_pose], dim=1)
-        
-        
-        try:
-            config = parse_args()
-            flamelayer = FLAME(config)
-            # Generate FLAME vertices and landmarks
-            # vertices, landmarks = flamelayer(
-            #     shape_params, expression_params, pose_params, neck_pose, eye_pose, transl_pose
-            # )
-
-            vertices=flamelayer.forward_geo_subdivided(
-                shape_params, expression_params, pose_params, neck_pose, eye_pose, transl_pose,scale_factor,1
-            )
-            
-            # Convert vertices to numpy and add to list
-            if isinstance(vertices, torch.Tensor):
-                vertices_np = vertices.detach().cpu().numpy()
-                if vertices_np.ndim == 3:  # If has batch dimension, take first
-                    vertices_np = vertices_np[0]
-                # vertices_np = vertices_np * scale_factor.cpu().numpy()  # Apply scaling factor
-                pcd=save_pcd_ply(vertices_np,ply_path)
-            
-        except Exception as e:
-            print(f"\nWarning: Failed to generate FLAME vertices : {e}")
-
+    if flame_path is None:
+        flame_path=os.path.join(path,"flame.frame")
+        if not os.path.exists(flame_path):
+            flame_path=os.path.join(path,"smplx.pkl")
+    
     for camera_info in cam_infos_unsorted:
         alpha_reading_dir = "alpha" if alpha_folder == None else alpha_folder
         neckhead_reading_dir="neckhead" if head_folder==None else head_folder
@@ -493,7 +575,7 @@ def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,co
         camera_info.alpha_path=os.path.join(path,alpha_reading_dir,camera_info.image_name)
         camera_info.head_mask_path=os.path.join(path,neckhead_reading_dir,camera_info.image_name)
         camera_info.mouth_mask_path=os.path.join(path,mouth_reading_dir,camera_info.image_name)
-        camera_info.flame_params=flame_params
+        camera_info.params_path=flame_path
         camera_info.kid=kid
         camera_info.timecode=timecode
 
@@ -503,6 +585,14 @@ def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,co
     test_cam_infos = [c for c in cam_infos if c.is_test]
 
     nerf_normalization = getNerfppNorm(train_cam_infos)
+    if flame_path.endswith(".frame"):
+        vertices_np=create_np_flame_geometry(flame_path)
+        pcd=save_pcd_ply(vertices_np,ply_path)
+    elif flame_path.endswith(".pkl"):
+        vertices_np=create_np_smplx_geometry(flame_path)
+        pcd=save_pcd_ply(vertices_np,ply_path)
+    else:
+        pcd=None
 
     scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
@@ -515,5 +605,5 @@ def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,co
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,
     "Blender" : readNerfSyntheticInfo,
-    "Flame":readFlameSceneInfo
+    "ParamsGeo":readFlameSmplxSceneInfo
 }

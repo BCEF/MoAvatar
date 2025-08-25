@@ -16,6 +16,7 @@ from PIL import Image
 import cv2
 #SUMO
 import torch,os
+from utils.param_model_utils import load_smplx_codedict,load_flame_codedict
 WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dataset):
@@ -74,37 +75,12 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
             print(f"Warning: Failed to load mouth mask from {cam_info.mouth_mask_path}: {e}")
             mouth_mask = None
     
-    # 提取FLAME参数
-    shape_param=None
-    exp_param = None
-    global_rotation = None
-    jaw_pose = None
-    neck_pose = None
-    eyes_pose = None
-    transl = None
-    scale_factor=None
-    if hasattr(cam_info, 'flame_params') and cam_info.flame_params:
-        flame_params = cam_info.flame_params
-        try:
-            if flame_params.get('shape') is not None:
-                shape_param = torch.as_tensor(flame_params['shape'])
-            if flame_params.get('exp') is not None:
-                exp_param = torch.as_tensor(flame_params['exp'])
-            if flame_params.get('global_rotation') is not None:
-                global_rotation = torch.as_tensor(flame_params['global_rotation'])
-            if flame_params.get('jaw') is not None:
-                jaw_pose = torch.as_tensor(flame_params['jaw'])
-            if flame_params.get('neck') is not None:
-                neck_pose = torch.as_tensor(flame_params['neck'])
-            if flame_params.get('eyes') is not None:
-                eyes_pose = torch.as_tensor(flame_params['eyes'])
-            if flame_params.get('transl') is not None:
-                transl = torch.as_tensor(flame_params['transl'])
-            if flame_params.get('scale_factor') is not None:
-                scale_factor = torch.as_tensor(flame_params['scale_factor']).reshape(shape_param.shape[0],1)
-        except Exception as e:
-            print(f"Warning: Failed to process FLAME parameters: {e}")
-
+    shape_params=None
+    if hasattr(cam_info,'params_path') and cam_info.params_path and os.path.exists(cam_info.params_path):
+        if cam_info.params_path.endswith(".frame"):
+            shape_params=load_flame_codedict(cam_info.params_path)
+        elif cam_info.params_path.endswith(".pkl"):
+            shape_params=load_smplx_codedict(cam_info.params_path)
 
     orig_w, orig_h = image.size
     if args.resolution in [1, 2, 4, 8]:
@@ -135,9 +111,8 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
                  # 添加新的参数
                   kid=cam_info.kid,timecode=cam_info.timecode,
                   alpha=alpha, head_mask=head_mask, mouth_mask=mouth_mask,
-                  shape_param=shape_param,
-                  exp_param=exp_param, global_rotation=global_rotation, jaw_pose=jaw_pose, 
-                  neck_pose=neck_pose, eyes_pose=eyes_pose, transl=transl,scale_factor=scale_factor)
+                  shape_params=shape_params,
+                  )
 def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_synthetic, is_test_dataset):
     camera_list = []
 
