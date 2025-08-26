@@ -78,7 +78,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-
+    bg = torch.rand((3), device="cuda") if opt.random_background else background
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
@@ -99,16 +99,16 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 batch_end = batch_start + batch_size
             
             print(f"Loading batch {batch_idx + 1}/{num_batches}: cameras {batch_start} to {batch_end-1}")
-            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.resolution)
-            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.resolution)
+            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.rscale)
+            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.rscale)
 
             if gaussians.temp_flame_vertices is None:
-                codedict = scene.getTrainCameras(dataset.resolution)[0].get_flame_params()
-                codedict['t']=scene.getTrainCameras(dataset.resolution)[0].timecode
-                codedict['kid'] = scene.getTrainCameras(dataset.resolution)[0].kid
+                codedict = scene.getTrainCameras(dataset.rscale)[0].get_flame_params()
+                codedict['t']=scene.getTrainCameras(dataset.rscale)[0].timecode
+                codedict['kid'] = scene.getTrainCameras(dataset.rscale)[0].kid
                 gaussians.deform_init(codedict)
 
-            viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+            viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
             ema_loss_for_log = 0.0
             ema_Ll1depth_for_log = 0.0
@@ -134,7 +134,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         net_image_bytes = None
                         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                         if custom_cam != None:
-                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
+                            net_image = render(custom_cam, gaussians, pipe, bg, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp, separate_sh=SPARSE_ADAM_AVAILABLE)["render"]
                             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                         network_gui.send(net_image_bytes, dataset.source_path)
                         if do_training and ((iteration < batch_end_iter) or not keep_alive):
@@ -152,7 +152,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.oneupSHdegree()
 
                 if not viewpoint_stack:
-                    viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+                    viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
                     viewpoint_indices = list(range(len(viewpoint_stack)))
                 
                 rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -178,11 +178,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     alpha_mask = viewpoint_cam.alpha_mask.cuda()
                     image *= alpha_mask
                     
+                if viewpoint_cam.alpha is not None:
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
-                        white_background_image = torch.ones_like(gt_image)  # 白色背景
-                        gt_image = gt_image * alpha + white_background_image * (1 - alpha)
+                        background_image = torch.ones_like(gt_image)  # 白色背景
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
+                    else:
+                        gt_image*=alpha 
+                    if opt.random_background:
+                        background_image = torch.ones_like(gt_image)  # 随机背景
+                        background_image[0,::]=bg[0]
+                        background_image[1,::]=bg[1]
+                        background_image[2,::]=bg[2]
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
                     else:
                         gt_image*=alpha
 
@@ -274,19 +283,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                             gaussians.optimizer.step()
                             gaussians.optimizer.zero_grad(set_to_none = True)
 
-                    
-                    # if local_iteration < opt.densify_until_iter:
-                    #     #不执行稠密化和剪枝
-                    #     if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                    #         gaussians.reset_opacity()
-                    
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):
                         print(f"\n[GLOBAL ITER {global_iteration}] Saving Checkpoint (Cycle {cycle+1}, Batch {batch_idx+1}, Local Iter {local_iteration})")
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
-            scene.clearCameras(dataset.resolution) 
+            scene.clearCameras(dataset.rscale) 
 
         #在每个cycle结束时保存一次模型 
         print(f"\n[GLOBAL ITER {global_iteration}] Saving Gaussians at the end of cycle {cycle+1}")
@@ -367,13 +370,14 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
-    parser.add_argument("--start_checkpoint", type=str, default = None) 
+    parser.add_argument("--step3_checkpoint", type=str, default = None) 
     parser.add_argument("--keyframe_checkpoint", type=str, default = None) #step2的训练结果
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
-    args.iterations=2000
-    # args.batchnum=10
+    args.iterations=1000
+    args.batchnum=5
+    args.random_background=True
     print("Optimizing " + args.model_path)
 
     safe_state(args.quiet)
@@ -381,6 +385,6 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.start_checkpoint,args.keyframe_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.checkpoint_iterations, args.step3_checkpoint,args.keyframe_checkpoint, args.debug_from)
 
     print("\nTraining complete.")

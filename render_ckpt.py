@@ -35,7 +35,7 @@ def training(dataset, opt, pipe,checkpoint_path):
     all_train_cameras = scene.getAvailableCamInfos()['train_cameras']
     num_batches = dataset.batchnum
     batch_size = max(1, len(all_train_cameras) // num_batches)
-
+    std_name=all_train_cameras[0].image_name
     for batch_idx in range(num_batches):
         batch_start = batch_idx * batch_size
         if batch_idx == num_batches - 1:
@@ -48,7 +48,7 @@ def training(dataset, opt, pipe,checkpoint_path):
         scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.resolution)
 
         viewpoint = scene.getTrainCameras(dataset.resolution).copy()
-        std_name=viewpoint[0].image_name
+        # std_name=viewpoint[0].image_name
         print(f"Rendering viewpoints with name {std_name}")
         for iteration in range(len(viewpoint)):
             viewpoint_cam = viewpoint[iteration]

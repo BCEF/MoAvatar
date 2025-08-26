@@ -95,8 +95,12 @@ class Scene:
                 colmap_folder = os.path.join(root_folder, 'sparse/0')
             if params_type=="smplx":
                 flame_path=os.path.join(frame_folder,"smplx.pkl")
+                if not os.path.exists(flame_path):
+                    flame_path=os.path.join(frame_folder,subfolder+'.pkl')
             elif params_type=="flame":
                 flame_path=os.path.join(frame_folder,'flame.frame')
+                if not os.path.exists(flame_path):
+                    flame_path=os.path.join(frame_folder,subfolder+'.frame')
             else:
                 flame_path=None
             alpha_folder=os.path.join(frame_folder,'alpha')
@@ -146,18 +150,22 @@ class Scene:
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
                                                            "point_cloud.ply"), args.train_test_exp)
+        elif args.use_init_ply and os.path.exists(args.init_ply_path):
+            self.gaussians.load_ply(args.init_ply_path,args.train_test_exp)
+            self.gaussians.fixup_params(scene_info.train_cameras,self.cameras_extent)
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent)
-
     def loadFlameCodes(self,flame_path:str,kid,timecode):
-        if flame_path.endswith("frame"):
+        if flame_path.endswith(".frame"):
             codedict=load_flame_codedict(flame_path)
             codedict["kid"]=kid
             codedict["t"]=timecode
+            return codedict
         elif flame_path.endswith(".pkl"):
             codedict=load_smplx_codedict(flame_path)
             codedict["kid"]=kid
             codedict["t"]=timecode
+            return codedict
         return None
 
     # def loadTrainCameras(self, cam_infos=None, resolution_scale=1.0):

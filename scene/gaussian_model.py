@@ -28,7 +28,7 @@ from scene.deform_model import positional_encoding,MLP,SIREN
 import smplx
 from flame_pytorch import FLAME, parse_args
 import trimesh
-from deformation_graph import apply_deformation_to_gaussians,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
+from deformation_graph import apply_deformation_to_gaussians2,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 import time
 from utils.param_model_utils import generate_flame_geometry,generate_smplx_geometry
@@ -143,15 +143,26 @@ class GaussianModel:
 
     #SUMO
     def deform_init(self,codedict):
-        if not os.path.exists('model/deformation_graph.json'):
-            mesh_a=trimesh.load('model/FlameMesh.obj',process=False)
-            vertex = np.array(mesh_a.vertices)
-            faces = np.array(mesh_a.faces)
-            self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=2.5,node_nodes_num=8,v_nodes_num=12)
-            self.dg.save('model/deformation_graph.json')
-        else:
-            self.dg = DeformationGraph()
-            self.dg.load('model/deformation_graph.json')
+        if self.params_model_type=="flame":
+            if not os.path.exists('model/deformation_graph.json'):
+                mesh_a=trimesh.load('model/FlameMesh.obj',process=False)
+                vertex = np.array(mesh_a.vertices)
+                faces = np.array(mesh_a.faces)
+                self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=2.5,node_nodes_num=8,v_nodes_num=12)
+                self.dg.save('model/deformation_graph.json')
+            else:
+                self.dg = DeformationGraph()
+                self.dg.load('model/deformation_graph.json')
+        elif self.params_model_type=="smplx":
+            if not os.path.exists('models/deformation_graph.json'):
+                mesh_a=trimesh.load('models/smplx.obj',process=False)
+                vertex = np.array(mesh_a.vertices)
+                faces = np.array(mesh_a.faces)
+                self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=1.5,node_nodes_num=8,v_nodes_num=12)
+                self.dg.save('models/deformation_graph.json')
+            else:
+                self.dg = DeformationGraph()
+                self.dg.load('models/deformation_graph.json')
         self.canonical_flame_code=codedict
         if self.temp_flame_vertices is None:
             self.temp_flame_vertices = {}
@@ -163,6 +174,7 @@ class GaussianModel:
             return generate_smplx_geometry(codedict,self.params_model)
 
     def capture(self):
+        # _xyz,_,_=self.forward(self.canonical_flame_code)
         return (
             self.active_sh_degree,           
             # self._features_dc,
@@ -173,8 +185,8 @@ class GaussianModel:
             self.denom,
             self.optimizer.state_dict(),
             self.spatial_lr_scale,
-            #WDD
             self._xyz_0,
+            # _xyz,
             self._rotation_0, 
             self._scaling_0,  # 新增：保存缩放参数
             self._features_dc_0,
@@ -447,8 +459,6 @@ class GaussianModel:
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
- 
-
         # 移除 xyz group
         l = [
             {'params': self.xyz_mlp.parameters(), 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz_mlp"},
@@ -557,11 +567,16 @@ class GaussianModel:
             current_geometry = self.generate_params_geometry(codedict)
             transforms=compute_deformation_transforms(self.dg,base_geometry.cpu().numpy(),current_geometry.cpu().numpy())
             st=time.time()
-            deform_points=apply_deformation_to_gaussians(self.dg,self._xyz_0.detach().cpu().clone().numpy(),transforms)
+            deform_points=apply_deformation_to_gaussians2(self.dg,self._xyz_0.detach().cpu().clone().numpy(),transforms)
             print(f"{self._xyz_0.shape[0]} points apply deformation at kid {kid},total time:{(time.time()-st)}s")
-            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
+            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
+            from .dataset_readers import storePly
+            ply_path='/home/momo/Desktop/data/three_output_01/'+str(kid)+'.ply'
+            storePly(ply_path,deform_points,np.ones_like(deform_points))
 
+            xyz0='/home/momo/Desktop/data/three_output_01/xyz0.ply'
+            storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
         #WDD
         if kid not in self.inverse_deform_transforms:
             base_geometry = self.generate_params_geometry(self.canonical_flame_code)
@@ -574,19 +589,7 @@ class GaussianModel:
         encoded = encoded.unsqueeze(0)  # (1, N, 51)
 
         #SUMO
-        # shape_param = codedict['shape'].detach()
-        # exp_param = codedict['exp'].detach()
-        # global_rotation = codedict['global_rotation'].detach()
-        # jaw_pose = codedict['jaw'].detach()
-        # neck_pose=codedict['neck'].detach()
-        # eyes_pose = codedict['eyes'].detach()
-        # transl = codedict['transl'].detach()
-        # scale_factor=codedict['scale_factor'].detach()
-        # batch_size = transl.shape[0]
-        # t= torch.as_tensor(codedict['t']).to(transl.device).reshape(batch_size, 1) # time parameter
-
-        # pose_params = torch.cat((global_rotation, jaw_pose), dim=1)
-        # condition = torch.cat((t,exp_param, pose_params, neck_pose,eyes_pose,transl,scale_factor), dim=1)
+        
         condition=self.cat_codedict_tensor(codedict)
         condition = condition.unsqueeze(1).repeat(1, encoded.shape[1], 1)
 
@@ -595,8 +598,13 @@ class GaussianModel:
         delta_xyz = self.xyz_mlp(encoded)  # 这时不会报错
         delta_xyz = delta_xyz.squeeze(0)
 
-        _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
 
+        # if kid==0:
+        #     _xyz_t=self.temp_flame_vertices[kid]
+        # else:
+        #     _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
+
+        _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
         
         delta_rot = self.rot_mlp(encoded)  # 计算旋转
         delta_rot = delta_rot.squeeze(0)
@@ -901,7 +909,7 @@ class GaussianModel:
         
         rots = build_rotation(self._rotation_t[selected_pts_mask]).repeat(N,1,1)
         new_xyz_t= torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_xyz_0=apply_deformation_to_gaussians(self.dg, new_xyz_t.cpu().clone().numpy(), self.inverse_deform_transforms[kid])['xyz']
+        new_xyz_0=apply_deformation_to_gaussians2(self.dg, new_xyz_t.cpu().clone().numpy(), self.inverse_deform_transforms[kid])
         new_xyz_0 = torch.as_tensor(new_xyz_0).to(new_xyz_t.device)
         new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
         new_rotation = self._rotation_0[selected_pts_mask].repeat(N,1)

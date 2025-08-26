@@ -511,7 +511,7 @@ def save_pcd_ply(vertices,ply_path):
 #                            is_nerf_synthetic=False)
 #     return scene_info
 
-def readFlameSmplxSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
+def readFlameSmplxSceneInfo(path:str, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
     sparse_folder=os.path.join(path, "sparse/0") if colmap_folder is None else colmap_folder
 
     cameras_extrinsic_file = os.path.join(sparse_folder, "images.bin")

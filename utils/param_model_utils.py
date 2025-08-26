@@ -185,11 +185,11 @@ def generate_smplx_geometry(codedict,model=None):
                         num_expression_coeffs=100,
                         num_pca_comps=0)
     
-    betas = codedict['betas'].detach()
-    expression =codedict['expression'].detach()
-    body_pose = codedict['body_pose'].detach()
-    global_orient = codedict['global_orient'].detach()
-    transl = codedict['transl'].detach()
+    betas = codedict['betas'].detach().cpu()
+    expression =codedict['expression'].detach().cpu()
+    body_pose = codedict['body_pose'].detach().cpu()
+    global_orient = codedict['global_orient'].detach().cpu()
+    transl = codedict['transl'].detach().cpu()
     
     # Generate mesh
     output = model(betas=betas, 
@@ -202,5 +202,5 @@ def generate_smplx_geometry(codedict,model=None):
     # Extract vertices
     # vertices = output.vertices.detach().cpu().numpy().squeeze()
     vertices=output.vertices.detach().squeeze()
-    return vertices
+    return vertices.to("cuda")
     

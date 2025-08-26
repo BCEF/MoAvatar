@@ -68,6 +68,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+    bg = torch.rand((3), device="cuda") if opt.random_background else background
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
@@ -89,25 +90,25 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 batch_end = batch_start + batch_size
             
             print(f"Loading batch {batch_idx + 1}/{num_batches}: cameras {batch_start} to {batch_end-1}")
-            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.resolution)
-            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.resolution)
+            scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.rscale)
+            scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.rscale)
 
             if gaussians.temp_flame_vertices is None:
-                codedict = scene.getTrainCameras(dataset.resolution)[0].get_flame_params()
-                codedict['t']=scene.getTrainCameras(dataset.resolution)[0].timecode
-                codedict['kid'] = scene.getTrainCameras(dataset.resolution)[0].kid
+                codedict = scene.getTrainCameras(dataset.rscale)[0].get_flame_params()
+                codedict['t']=scene.getTrainCameras(dataset.rscale)[0].timecode
+                codedict['kid'] = scene.getTrainCameras(dataset.rscale)[0].kid
                 gaussians.deform_init(codedict)
 
-            viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+            viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
             viewpoint_indices = list(range(len(viewpoint_stack)))
             ema_loss_for_log = 0.0
             ema_Ll1depth_for_log = 0.0
 
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
-            batch_end_iter = global_iteration + get_iterations_by_cycle(cycle,opt.iterations)
+            batch_end_iter = global_iteration + opt.iterations
             
-            progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle {cycle+1} Batch {batch_idx+1} Training")
+            progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle {cycle+1} Batch {batch_idx+1}")
             
             for iteration in range(batch_start_iter, batch_end_iter + 1):
                 # 更新全局iteration计数器
@@ -120,7 +121,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         net_image_bytes = None
                         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                         if custom_cam != None:
-                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
+                            net_image = render(custom_cam, gaussians, pipe, bg, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
                             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                         network_gui.send(net_image_bytes, dataset.source_path)
                         if do_training and ((iteration < batch_end_iter) or not keep_alive):
@@ -138,7 +139,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     gaussians.oneupSHdegree()
 
                 if not viewpoint_stack:
-                    viewpoint_stack = scene.getTrainCameras(dataset.resolution).copy()
+                    viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
                     viewpoint_indices = list(range(len(viewpoint_stack)))
                 
                 rand_idx = randint(0, len(viewpoint_indices) - 1)
@@ -153,10 +154,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 #SUMO
                 gt_image = viewpoint_cam.original_image.cuda()
                 if viewpoint_cam.alpha is not None:
+                    #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
-                        white_background_image = torch.ones_like(gt_image)  # 白色背景
-                        gt_image = gt_image * alpha + white_background_image * (1 - alpha)
+                        background_image = torch.ones_like(gt_image)  # 白色背景
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
+                    else:
+                        gt_image*=alpha
+
+                    if opt.random_background:
+                        background_image = torch.ones_like(gt_image)  # 随机背景
+                        background_image[0,::]=bg[0]
+                        background_image[1,::]=bg[1]
+                        background_image[2,::]=bg[2]
+                        gt_image = gt_image * alpha + background_image * (1 - alpha)
                     else:
                         gt_image*=alpha
                 
@@ -166,11 +177,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 codedict=viewpoint_cam.get_flame_params()
                 codedict['t']=viewpoint_cam.timecode
                 codedict['kid'] = viewpoint_cam.kid
-                if viewpoint_cam.kid==0:
-                    gaussians.forward_x0()
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
-                    image0=render_pkg["render"]
-                    loss+=l1_loss(image0, gt_image)*0.5
+                # if viewpoint_cam.kid==0:
+                #     gaussians.forward_x0()
+                #     render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
+                #     image0=render_pkg["render"]
+                #     loss+=l1_loss(image0, gt_image)*0.5
 
                 gaussians.forward(codedict,update=True)
 
@@ -181,9 +192,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if viewpoint_cam.alpha_mask is not None:
                     alpha_mask = viewpoint_cam.alpha_mask.cuda()
                     image *= alpha_mask
-                    
-                
-
                 
                 Ll1 = l1_loss(image, gt_image)
                 if FUSED_SSIM_AVAILABLE:
@@ -270,7 +278,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
                     
             #SUMO 清除缓存  
-            scene.clearCameras(dataset.resolution)  
+            scene.clearCameras(dataset.rscale)  
 
         #在每个cycle结束时保存一次模型 
         print(f"\n[GLOBAL ITER {global_iteration}] Saving Gaussians at the end of cycle {cycle+1}")
@@ -347,7 +355,7 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 30_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[3_000,7_000, 30_000,300_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[3_000,10_000, 20_000,30_000,300_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
@@ -357,10 +365,10 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     #关键帧数量少，放在一个batch中训练，训练次数多一些
-    args.iterations=20000
-    args.batchnum=5
+    args.iterations=10000
+    args.batchnum=2
     args.looptimes=1
-    
+    args.random_background=True
     print("Optimizing " + args.model_path)
 
     safe_state(args.quiet)

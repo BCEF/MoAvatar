@@ -1,4 +1,4 @@
 from .generate_deformation_graph import generate_deformation_graph
 from .deformation_utils import compute_deformation_transforms
-from .transform_gaussian import apply_deformation_to_gaussians
+from .transform_gaussian import apply_deformation_to_gaussians,apply_deformation_to_gaussians2
 from .deformation_graph import DeformationGraph

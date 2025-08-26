@@ -60,6 +60,10 @@ class ModelParams(ParamGroup):
         #SUMO
         self.batchnum=10 #batch数量，将所有相机分成batchnum块训练
         self.looptimes=100 #所有batch训练一次为一个loop
+        self.rscale=1.0 #1/（rscale*resolution）是最终的缩放比例
+
+        self.use_init_ply=True
+        self.init_ply_path="GaussianInit.ply"
 
         super().__init__(parser, "Loading Parameters", sentinel)
 
@@ -94,9 +98,9 @@ class OptimizationParams(ParamGroup):
         self.percent_dense = 0.01
         self.lambda_dssim = 0.2
         self.densification_interval = 100
-        self.opacity_reset_interval = 1000
+        self.opacity_reset_interval = 1150
         self.densify_from_iter = 500
-        self.densify_until_iter = 15_000
+        self.densify_until_iter = 9_000
         self.densify_grad_threshold = 0.0002
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01

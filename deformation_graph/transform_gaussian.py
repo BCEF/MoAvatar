@@ -153,6 +153,104 @@ def apply_deformation_to_gaussians(dg, points, transforms):
     # total_time = time.time() - start_time
     # print(f"变形处理完成 - 总耗时: {total_time:.2f}秒")
     
+    return deformed_gaussian['xyz']
+
+def apply_deformation_to_gaussians2(dg, points, transforms):
+    """
+    将变形图变换应用到高斯散点
+    
+    参数:
+        dg: 变形图对象
+     
+        transforms: DeformationTransforms对象，包含变换信息
+    
+    返回:
+        deformed_gaussian: 变形后的高斯数据字典
+    """
+    from scipy.spatial import cKDTree
+    from scipy.spatial.transform import Rotation
+    import numpy as np
+
+    # 创建结果字典，复制输入高斯数据
+
+    deformed_gaussian=points.copy()
+
+    # 获取变换矩阵和控制节点信息
+    transformations = np.array(transforms.transformations)
+    node_positions = dg.node_positions
+    influence_radius = dg.node_radius
+    
+    # 获取所有高斯点的位置和旋转
+    point_count = points.shape[0]
+
+    
+    # 1. 使用KD树加速最近点查找
+    kdtree = cKDTree(node_positions)
+    
+    # 3. 批处理 + 稀疏表示
+    batch_size = 30000  # 可调整
+    num_batches = (point_count + batch_size - 1) // batch_size
+    
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, point_count)
+        batch_points = points[start_idx:end_idx]
+
+        
+        # 4. 快速查找每个点的影响节点 (半径查询)
+        influence_indices = kdtree.query_ball_point(batch_points, influence_radius)
+        
+        # 5. 预先分配结果数组，避免重复分配内存
+        batch_positions = deformed_gaussian[start_idx:end_idx]
+
+         # 向量化处理整个批次
+        batch_size = len(batch_points)
+        
+        # 跟踪需要处理的点
+        points_to_process = []
+        for i, indices in enumerate(influence_indices):
+            if len(indices) > 0:
+                points_to_process.append(i)
+        
+        # 6. 只处理有影响节点的点
+        for local_idx in points_to_process:
+            point_pos = batch_points[local_idx]
+            
+            # 有影响的节点索引
+            node_indices = influence_indices[local_idx]
+            
+            # 计算到这些节点的距离
+            node_dists = np.linalg.norm(node_positions[node_indices] - point_pos, axis=1)
+            
+            # 计算权重
+            weights = 1.0 - node_dists / influence_radius
+            weights = np.maximum(weights, 0)
+            total_weight = np.sum(weights)
+            
+            if total_weight <= 0:
+                continue
+                
+            weights = weights / total_weight
+            
+            # 7. 向量化位置变换计算
+            homogeneous_pos = np.ones(4)
+            homogeneous_pos[:3] = point_pos
+            
+            
+            # 一次性获取所有相关变换矩阵: shape (k, 4, 4)
+            relevant_transforms = transformations[node_indices]
+
+            # 一次性变换: (k, 4, 4) @ (4,) -> (k, 4)  
+            transformed_positions = relevant_transforms @ homogeneous_pos
+
+            # 加权求和: (k,) @ (k, 3) -> (3,)
+            blend_pos = weights @ transformed_positions[:, :3]
+            batch_positions[local_idx] = blend_pos
+            
+        # 更新结果数组
+        deformed_gaussian[start_idx:end_idx] = batch_positions
+
+    
     return deformed_gaussian
 
 class GaussianDeformer:
