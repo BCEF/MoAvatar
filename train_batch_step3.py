@@ -375,9 +375,9 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
-    args.iterations=1000
-    args.batchnum=5
-    args.random_background=True
+    # args.iterations=1000
+    # args.batchnum=5
+    # args.random_background=True
     print("Optimizing " + args.model_path)
 
     safe_state(args.quiet)
