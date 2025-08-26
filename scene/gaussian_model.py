@@ -25,20 +25,18 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 #WDD
 from scene.deform_model import positional_encoding,MLP,SIREN
 #SUMO
-import smplx
-from flame_pytorch import FLAME, parse_args
-import trimesh
+
+
+# import trimesh
+
 from deformation_graph import apply_deformation_to_gaussians2,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 import time
-from utils.param_model_utils import generate_flame_geometry,generate_smplx_geometry
+from utils.param_model_utils import generate_flame_geometry,generate_smplx_geometry,read_obj
 try:
     from diff_gaussian_rasterization import SparseGaussianAdam
 except:
     pass
-
-
-
 
 def quatProduct_batch(q1, q2):
     r1 = q1[:,0] # [B]
@@ -47,7 +45,7 @@ def quatProduct_batch(q1, q2):
     v2 = torch.stack((q2[:,1], q2[:,2], q2[:,3]), dim=-1)
 
     r = r1 * r2 - torch.sum(v1*v2, dim=1) # [B]
-    v = r1.unsqueeze(1) * v2 + r2.unsqueeze(1) * v1 + torch.cross(v1, v2) #[B,3]
+    v = r1.unsqueeze(1) * v2 + r2.unsqueeze(1) * v1 + torch.linalg.cross(v1, v2) #[B,3]
     q = torch.stack((r, v[:,0], v[:,1], v[:,2]), dim=1)
 
     return q
@@ -114,10 +112,12 @@ class GaussianModel:
         shape_params_dim=0
         self.params_model_type=params_model_type
         if params_model_type=="flame":
+            from flame_pytorch import FLAME, parse_args
             flame_config = parse_args()
             self.params_model = FLAME(flame_config).to("cuda")
             shape_params_dim=flame_config.expression_params + flame_config.pose_params + flame_config.neck_params+flame_config.eye_params + flame_config.translation_params + flame_config.scale_params+1
         elif params_model_type=="smplx":
+            import smplx
             self.params_model=smplx.create("models", 
                         model_type='smplx', 
                         gender='neutral',
@@ -145,9 +145,11 @@ class GaussianModel:
     def deform_init(self,codedict):
         if self.params_model_type=="flame":
             if not os.path.exists('model/deformation_graph.json'):
-                mesh_a=trimesh.load('model/FlameMesh.obj',process=False)
-                vertex = np.array(mesh_a.vertices)
-                faces = np.array(mesh_a.faces)
+                # mesh_a=trimesh.load('model/FlameMesh.obj',process=False)
+                # vertex = np.array(mesh_a.vertices)
+                # faces = np.array(mesh_a.faces)
+                vertex=generate_flame_geometry(codedict).cpu().numpy().copy()
+                _,faces=read_obj('model/FlameMesh.obj')
                 self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=2.5,node_nodes_num=8,v_nodes_num=12)
                 self.dg.save('model/deformation_graph.json')
             else:
@@ -155,9 +157,11 @@ class GaussianModel:
                 self.dg.load('model/deformation_graph.json')
         elif self.params_model_type=="smplx":
             if not os.path.exists('models/deformation_graph.json'):
-                mesh_a=trimesh.load('models/smplx.obj',process=False)
-                vertex = np.array(mesh_a.vertices)
-                faces = np.array(mesh_a.faces)
+                # mesh_a=trimesh.load('models/smplx.obj',process=False)
+                # vertex = np.array(mesh_a.vertices)
+                # faces = np.array(mesh_a.faces)
+                vertex=generate_smplx_geometry(codedict).cpu().numpy().copy()
+                _,faces=read_obj('models/smplx.obj')
                 self.dg=generate_deformation_graph(vertex,faces,node_num=100,radius_coef=1.5,node_nodes_num=8,v_nodes_num=12)
                 self.dg.save('models/deformation_graph.json')
             else:
@@ -571,12 +575,6 @@ class GaussianModel:
             print(f"{self._xyz_0.shape[0]} points apply deformation at kid {kid},total time:{(time.time()-st)}s")
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
-            from .dataset_readers import storePly
-            ply_path='/home/momo/Desktop/data/three_output_01/'+str(kid)+'.ply'
-            storePly(ply_path,deform_points,np.ones_like(deform_points))
-
-            xyz0='/home/momo/Desktop/data/three_output_01/xyz0.ply'
-            storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
         #WDD
         if kid not in self.inverse_deform_transforms:
             base_geometry = self.generate_params_geometry(self.canonical_flame_code)

@@ -1,9 +1,10 @@
-from flame_pytorch import FLAME, parse_args
+
 import torch
 import pickle
 import smplx
 
 def create_tensor_flame_geometry(flame_path):
+    from flame_pytorch import FLAME, parse_args
     payload=torch.load(flame_path,weights_only=False)
     flame_params = {}
     if 'flame' in payload:
@@ -151,7 +152,9 @@ def load_smplx_codedict(smplx_path):
     }
 
 def generate_flame_geometry(codedict,model=None):
+
     if model==None:
+        from flame_pytorch import FLAME, parse_args
         flame_config = parse_args()
         model = FLAME(flame_config).to("cuda")
     
@@ -178,7 +181,7 @@ def generate_flame_geometry(codedict,model=None):
 
 def generate_smplx_geometry(codedict,model=None):
     if model==None:
-        model = smplx.create("smplx_models", 
+        model = smplx.create("models", 
                         model_type='smplx', 
                         gender='neutral',
                         num_betas=300,
@@ -203,4 +206,92 @@ def generate_smplx_geometry(codedict,model=None):
     # vertices = output.vertices.detach().cpu().numpy().squeeze()
     vertices=output.vertices.detach().squeeze()
     return vertices.to("cuda")
+
+import numpy as np
+from typing import Tuple
+
+def read_obj(file_path: str, triangulate: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    读取OBJ文件，返回顶点和面数据
     
+    Args:
+        file_path: OBJ文件路径
+        triangulate: 是否将四边形面片转换为三角形
+        
+    Returns:
+        vertices: 顶点数组，形状为 (N, 3)
+        faces: 面数组，形状为 (M, 3) 或 (M, 4)
+    """
+    vertices = []
+    faces = []
+    
+    with open(file_path, 'r', encoding='utf-8') as file:
+        for line_num, line in enumerate(file, 1):
+            line = line.strip()
+            
+            # 跳过空行和注释
+            if not line or line.startswith('#'):
+                continue
+                
+            parts = line.split()
+            if not parts:
+                continue
+                
+            try:
+                if parts[0] == 'v':
+                    # 读取顶点坐标
+                    if len(parts) >= 4:
+                        x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                        vertices.append([x, y, z])
+                    else:
+                        print(f"警告: 第{line_num}行顶点数据不完整: {line}")
+                        
+                elif parts[0] == 'f':
+                    # 读取面片数据
+                    face_indices = []
+                    for vertex_data in parts[1:]:
+                        # 处理 "v", "v/vt", "v/vt/vn", "v//vn" 等格式
+                        vertex_index = vertex_data.split('/')[0]
+                        if vertex_index:
+                            # OBJ索引从1开始，转换为从0开始
+                            idx = int(vertex_index) - 1
+                            face_indices.append(idx)
+                    
+                    if len(face_indices) >= 3:
+                        if triangulate and len(face_indices) == 4:
+                            # 将四边形分解为两个三角形
+                            # 四边形 [0,1,2,3] -> 三角形 [0,1,2] 和 [0,2,3]
+                            faces.append([face_indices[0], face_indices[1], face_indices[2]])
+                            faces.append([face_indices[0], face_indices[2], face_indices[3]])
+                        elif triangulate and len(face_indices) > 4:
+                            # 将多边形扇形三角化
+                            for i in range(1, len(face_indices) - 1):
+                                faces.append([face_indices[0], face_indices[i], face_indices[i + 1]])
+                        else:
+                            # 保持原始面片
+                            faces.append(face_indices)
+                    else:
+                        print(f"警告: 第{line_num}行面片数据不完整: {line}")
+                        
+            except (ValueError, IndexError) as e:
+                print(f"错误: 第{line_num}行解析失败: {line} - {e}")
+                continue
+    
+    # 转换为numpy数组
+    vertices = np.array(vertices, dtype=np.float32)
+    
+    if faces:
+        # 检查所有面片是否有相同的顶点数
+        face_lengths = [len(face) for face in faces]
+        if len(set(face_lengths)) == 1:
+            # 所有面片顶点数相同，可以创建规则数组
+            faces = np.array(faces, dtype=np.int32)
+        else:
+            # 面片顶点数不同，保持为列表
+            faces = np.array(faces, dtype=object)
+    else:
+        faces = np.array([], dtype=np.int32).reshape(0, 3)
+    
+    print(f"读取完成: {len(vertices)} 个顶点, {len(faces)} 个面片")
+    
+    return vertices, faces
