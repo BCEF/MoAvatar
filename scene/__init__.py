@@ -86,7 +86,7 @@ class Scene:
         subfolders.sort()
 
         self.scene_info=None
-        for frame_id,subfolder in enumerate(subfolders):
+        for frame_id,subfolder in enumerate(subfolders[::args.frame_interval]):
             kid=frame_id
             timecode=float(frame_id)/len(subfolders)
             frame_folder=os.path.join(root_folder,subfolder)

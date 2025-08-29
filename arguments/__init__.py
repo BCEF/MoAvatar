@@ -65,6 +65,8 @@ class ModelParams(ParamGroup):
         self.use_init_ply=True
         self.init_ply_path="GaussianInit.ply"
 
+        self.frame_interval=10 #每隔frame_interval帧采样一帧进行训练
+
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
