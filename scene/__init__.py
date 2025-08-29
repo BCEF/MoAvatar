@@ -122,6 +122,8 @@ class Scene:
 
         self.scene_info=None
         for frame_id,subfolder in enumerate(subfolders):
+            if frame_id<args.start_frame or frame_id>args.end_frame:
+                continue
             # print(frame_id,subfolder)
             kid=frame_id
             timecode=float(frame_id)/len(subfolders)

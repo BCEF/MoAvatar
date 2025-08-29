@@ -65,6 +65,10 @@ class ModelParams(ParamGroup):
         self.use_init_ply=True
         self.init_ply_path="GaussianInit.ply"
 
+        self.start_frame=0
+        self.end_frame=100
+
+
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
