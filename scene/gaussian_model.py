@@ -575,6 +575,13 @@ class GaussianModel:
             print(f"{self._xyz_0.shape[0]} points apply deformation at kid {kid},total time:{(time.time()-st)}s")
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
+            #check 检查变形后结果
+            # from .dataset_readers import storePly
+            # ply_path='/home/momo/Desktop/data/three_output_01/'+str(kid)+'.ply'
+            # storePly(ply_path,deform_points,np.ones_like(deform_points))
+
+            # xyz0='/home/momo/Desktop/data/three_output_01/xyz0.ply'
+            # storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
         #WDD
         if kid not in self.inverse_deform_transforms:
             base_geometry = self.generate_params_geometry(self.canonical_flame_code)
