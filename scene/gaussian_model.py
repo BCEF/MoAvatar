@@ -976,7 +976,7 @@ class GaussianModel:
     
     #SUMO
     def build_knn_graph(self, k=4):
-        points = self.get_xyz.detach().cpu().numpy()
+        points = self._xyz_0.detach().cpu().numpy()
         nbrs = NearestNeighbors(n_neighbors=k+1).fit(points)
         _, indices = nbrs.kneighbors(points)
 
