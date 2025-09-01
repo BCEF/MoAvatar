@@ -124,7 +124,7 @@ class GaussianModel:
                         num_betas=300,
                         num_expression_coeffs=100,
                         num_pca_comps=0)
-            shape_params_dim=170
+            shape_params_dim=169 #去掉t是169，加上t是170
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
         #self.xyz_mlp = MLP(input_dim=dim_encoded, output_dim=3, hidden_dim=256, hidden_layers=8).to(device='cuda')
@@ -560,7 +560,8 @@ class GaussianModel:
             body_pose = codedict['body_pose'].detach()
             global_orient = codedict['global_orient'].detach()
             transl = codedict['transl'].detach()
-            condition=torch.cat((t,expression,body_pose,global_orient,transl),dim=1)
+            # condition=torch.cat((t,expression,body_pose,global_orient,transl),dim=1)
+            condition=torch.cat((expression,body_pose,global_orient,transl),dim=1)
         return condition.to("cuda")
 
     #WDD    
@@ -578,10 +579,12 @@ class GaussianModel:
 
             #check 检查变形后结果
             # from .dataset_readers import storePly
-            # ply_path='/home/momo/Desktop/data/three_output_01/'+str(kid)+'.ply'
+            # test_output_folder='/home/momo/Desktop/data/three_output_01/'
+            # os.makedirs(test_output_folder,exist_ok=True)
+            # ply_path=test_output_folder+str(kid)+'.ply'
             # storePly(ply_path,deform_points,np.ones_like(deform_points))
 
-            # xyz0='/home/momo/Desktop/data/three_output_01/xyz0.ply'
+            # xyz0=test_output_folder+'xyz0.ply'
             # storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
         #WDD
         if kid not in self.inverse_deform_transforms:
