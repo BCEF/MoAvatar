@@ -140,6 +140,7 @@ class GaussianModel:
 
         #WDD
         self.inverse_deform_transforms={}
+        self.canonical_flame_code=None
 
     #SUMO
     def deform_init(self,codedict):

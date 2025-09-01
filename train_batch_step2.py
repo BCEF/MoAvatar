@@ -93,10 +93,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.rscale)
             scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.rscale)
 
-            if gaussians.temp_flame_vertices is None:
-                codedict = scene.getTrainCameras(dataset.rscale)[0].get_flame_params()
-                codedict['t']=scene.getTrainCameras(dataset.rscale)[0].timecode
-                codedict['kid'] = scene.getTrainCameras(dataset.rscale)[0].kid
+            if gaussians.canonical_flame_code is None:
+                if os.path.exists('models/deformation_graph.json'):
+                    os.remove('models/deformation_graph.json')
+                codedict=scene.flame_codes[0]
                 gaussians.deform_init(codedict)
 
             viewpoint_stack = scene.getTrainCameras(dataset.rscale).copy()
