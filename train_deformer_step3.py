@@ -220,7 +220,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
                 # step3： 添加约束
                 #SUMO 计算temp与smooth loss
-                if viewpoint_cam.kid > 0:
+                if viewpoint_cam.kid > int(dataset.start_frame):
                     prev_codedict=scene.flame_codes[viewpoint_cam.kid-1]
                 else:
                     prev_codedict=scene.flame_codes[viewpoint_cam.kid]
@@ -373,15 +373,15 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 30_000, 300_000])
-    parser.add_argument("--start_checkpoint", type=str, default = None) 
+    parser.add_argument("--keyframe_checkpoint", type=str, default = None) 
     parser.add_argument("--step3_checkpoint", type=str, default = None) 
 
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
 
-    args.iterations=1000
-    args.batchnum=10
-    args.looptimes=100
+    # args.iterations=1000
+    # args.batchnum=10
+    # args.looptimes=100
     # args.random_background=True
     print("Optimizing " + args.model_path)
 
@@ -390,6 +390,6 @@ if __name__ == "__main__":
     if not args.disable_viewer:
         network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.step3_checkpoint,args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.keyframe_checkpoint, args.step3_checkpoint,args.debug_from)
 
     print("\nTraining complete.")

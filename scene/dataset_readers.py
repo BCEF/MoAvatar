@@ -22,7 +22,7 @@ from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
-from flame_pytorch import FLAME, parse_args
+
 
 import torch
 
@@ -375,6 +375,7 @@ def save_pcd_ply(vertices,ply_path):
 
 #WDD 读取 包含FLAME的数据
 def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,flame_path=None,alpha_folder=None,head_folder=None,mouth_folder=None,kid=0,timecode=0.0):
+    from flame_pytorch import FLAME, parse_args
     sparse_folder=os.path.join(path, "sparse/0") if colmap_folder is None else colmap_folder
 
     #try:

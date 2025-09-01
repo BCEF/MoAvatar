@@ -25,10 +25,10 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 #WDD
 from scene.deform_model import positional_encoding,MLP,SIREN
 #SUMO
-from flame_pytorch import FLAME, parse_args
-import trimesh
-from deformation_graph import apply_deformation_to_gaussians,DeformationGraph,generate_deformation_graph,compute_deformation_transforms
-from deformation_graph import get_deformation_info_fixed_influences,apply_deformation_to_gaussians_fix_influ,apply_deformation_to_gaussians2
+# from flame_pytorch import FLAME, parse_args
+# import trimesh
+# from deformation_graph import apply_deformation_to_gaussians,apply_deformation_to_gaussians_fix_influ,generate_deformation_graph,compute_deformation_transforms
+from deformation_graph import get_deformation_info_fixed_influences,DeformationGraph,apply_deformation_to_gaussians2
 from deformation_graph import DeformationTransforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 from utils.general_utils import build_quaternion,weighted_quaternion_log_space
