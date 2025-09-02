@@ -180,14 +180,16 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 if viewpoint_cam.alpha_mask is not None:
                     alpha_mask = viewpoint_cam.alpha_mask.cuda()
                     image *= alpha_mask
-                
+                    
                 if viewpoint_cam.alpha is not None:
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
                         background_image = torch.ones_like(gt_image)  # 白色背景
                         gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    elif dataset.random_background:
+                    else:
+                        gt_image*=alpha 
+                    if opt.random_background:
                         background_image = torch.ones_like(gt_image)  # 随机背景
                         background_image[0,::]=bg[0]
                         background_image[1,::]=bg[1]
@@ -293,6 +295,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         print(f"\n[GLOBAL ITER {global_iteration}] Saving Checkpoint (Cycle {cycle+1}, Batch {batch_idx+1}, Local Iter {local_iteration})")
                         torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
+            scene.save(global_iteration+viewpoint_cam.kid)
             scene.clearCameras(dataset.rscale)
             
 
@@ -369,10 +372,10 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=6009)
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 30_000, 300_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 30_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--disable_viewer', action='store_true', default=False)
-    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[1_000,3_000,7_000, 30_000, 300_000])
+    parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--keyframe_checkpoint", type=str, default = None) 
     parser.add_argument("--step3_checkpoint", type=str, default = None) 
 
