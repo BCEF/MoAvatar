@@ -263,8 +263,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,kid)
                             print(f'稠密化和剪枝后高斯点数：{gaussians._xyz_0.shape[0]}')
 
-                        if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                            gaussians.reset_opacity()
+                        # if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
+                        #     gaussians.reset_opacity()
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):
@@ -361,9 +361,9 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
 
     #关键帧数量少，放在一个batch中训练，训练次数多一些
-    args.iterations=20000
-    args.batchnum=1
-    args.looptimes=2
+    # args.iterations=20000
+    # args.batchnum=1
+    # args.looptimes=2
     
     print("Optimizing " + args.model_path)
 
