@@ -81,7 +81,7 @@ class Scene:
 
         root_folder=args.source_path
         # subfolders=os.listdir(root_folder)
-        subfolders = [f for f in os.listdir(root_folder) if 'sparse' not in f]
+        subfolders = [f for f in os.listdir(root_folder) if 'sparse' not in f and 'bg' not in f]
         subfolders.sort()
 
         self.scene_info=None
@@ -117,7 +117,7 @@ class Scene:
         self.test_cameras={}
         self.flame_codes={}
         root_folder=args.source_path
-        subfolders = [f for f in os.listdir(root_folder) if 'sparse' not in f and os.path.isdir(os.path.join(root_folder,f))]
+        subfolders = [f for f in os.listdir(root_folder) if 'sparse' not in f and os.path.isdir(os.path.join(root_folder,f)) and 'bg' not in f]
         subfolders.sort()
 
         self.scene_info=None

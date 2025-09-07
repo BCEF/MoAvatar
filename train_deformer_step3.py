@@ -231,12 +231,16 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 current_dict={
                     "xyz": gaussians._xyz_t,
                     "rotation":gaussians._rotation_t,
-                    "scaling":gaussians._scaling_t
+                    "scaling":gaussians._scaling_t,
+                    "features_dc":gaussians._features_dc_t,
+                    "features_rest":gaussians._features_rest_t
                 }
                 previous_dict={
                     "xyz": prev_xyt_t,
                     "rotation":prev_rotation_t,
-                    "scaling":prev_scaling_t
+                    "scaling":prev_scaling_t,
+                    "features_dc":gaussians._features_dc_t,
+                    "features_rest":gaussians._features_rest_t
                 }
                 loss_temp=0.0
                 loss_smooth=0.0
