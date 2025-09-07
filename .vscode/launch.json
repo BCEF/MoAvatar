@@ -15,15 +15,15 @@
             },
             "justMyCode": true,
             "args": [
-                    "--iterations","2000",//每一个batch的循环次数
-                    "--batchnum","7",//batch数量，关键帧帧数少，batch也小
+                    "--iterations","20000",//每一个batch的循环次数
+                    "--batchnum","1",//batch数量，关键帧帧数少，batch也小
                     "--looptimes","1",//batch越多，looptime设置的越多，所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
-                    "--random_background",
+                    // "--random_background",
                     "-r","2",
-                    "-w",
-                    "-s","/home/momo/Downloads/images_momo/",//关键帧数据文件夹
-                    "--model_path","/home/momo/Downloads/images_momo_4D_01",//输出路径
-                    "--init_ply_path","/home/momo/Downloads/images_momo/000000.ply"//预训练ply文件
+                    // "-w",
+                    "-s","/home/momo/Desktop/test_data/keyframes/",//关键帧数据文件夹
+                    "--model_path","/home/momo/Desktop/test_data/output_01/",//输出路径
+                    "--init_ply_path","/home/momo/Desktop/test_data/GaussianInit_speedy.ply"//预训练ply文件
                     // "--step2_checkpoint","/root/work/data/4_all/gs_output_deform_01/chkpnt120000.pth"//restore用
                     ]
         },
@@ -41,13 +41,13 @@
                     "--iterations","3000",//每一个batch的循环次数
                     "--batchnum","5",//batch数量
                     "--looptimes","100",//所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
-                    "--random_background",
+                    // "--random_background",
                     "-r","2",
-                    "-w",
-                    "-s","/home/momo/Downloads/images_momo/",//数据文件夹
-                    "--model_path","/home/momo/Downloads/images_momo_4D_01",//输出路径
-                    "--keyframe_checkpoint","/home/momo/Downloads/images_momo_4D_01/chkpnt14000.pth",//step2的结果
-                    // "--step3_checkpoint","/root/work/data/4_all/gs_output_deform_01/chkpnt1280000.pth"//restore用
+                    // "-w",
+                    "-s","/home/momo/Desktop/test_data/frames/",//数据文件夹
+                    "--model_path","/home/momo/Desktop/test_data/output_01/",//输出路径
+                    "--keyframe_checkpoint","/home/momo/Desktop/test_data/output_01/chkpnt20000.pth",//step2的结果
+                    // "--step3_checkpoint","/home/momo/Downloads/images_momo_4D_05/chkpnt122000.pth"//restore用
                     ]
         },
         {
@@ -57,16 +57,16 @@
             "program": "render_ckpt.py",
             "console": "integratedTerminal",
             "env": {
-                "CUDA_VISIBLE_DEVICES": "3"
+                "CUDA_VISIBLE_DEVICES": "0"
             },
             "justMyCode": true,
             "args": [
-                    "--random_background",
-                    "-r","1",
+                    "--batchnum","5",
+                    "-r","2",
                     "-w",
-                    "-s","/root/work/data/4_all/frames/",//数据文件夹
-                    "--model_path","/root/work/data/4_all/gs_output_deform_01",//输出路径
-                    "--step3_checkpoint","/root/work/data/4_all/gs_output_deform_01/chkpnt1280000.pth"//step3的结果
+                    "-s","/home/momo/Downloads/images_momo/",//数据文件夹
+                    "--model_path","/home/momo/Downloads/images_momo_4D_05",//输出路径
+                    "--step3_checkpoint","/home/momo/Downloads/images_momo_4D_05/chkpnt122000.pth"//step3的结果
                     ]
         },
     ]

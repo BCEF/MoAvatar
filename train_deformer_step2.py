@@ -13,7 +13,8 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render_abs as render
+from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -113,6 +114,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 # 更新全局iteration计数器
                 global_iteration = iteration
                 
+                bg = torch.rand((3), device="cuda") if opt.random_background else background
+
                 if network_gui.conn == None:
                     network_gui.try_connect()
                 while network_gui.conn != None:
@@ -120,7 +123,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         net_image_bytes = None
                         custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
                         if custom_cam != None:
-                            net_image = render(custom_cam, gaussians, pipe, background, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
+                            net_image = render(custom_cam, gaussians, pipe, bg, scaling_modifier=scaling_modifer, use_trained_exp=dataset.train_test_exp)["render"]
                             net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
                         network_gui.send(net_image_bytes, dataset.source_path)
                         if do_training and ((iteration < batch_end_iter) or not keep_alive):
@@ -147,7 +150,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 if (local_iteration - 1) == debug_from:
                     pipe.debug = True
 
-                bg = torch.rand((3), device="cuda") if opt.random_background else background
+                
 
                 #SUMO
                 gt_image = viewpoint_cam.original_image.cuda()
