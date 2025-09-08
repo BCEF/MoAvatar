@@ -266,8 +266,9 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,kid)
                             print(f'稠密化和剪枝后高斯点数：{gaussians._xyz_0.shape[0]}')
 
-                        # if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                        #     gaussians.reset_opacity()
+                        # 结束前500次不要进行reset opacity
+                        if (local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter)) and local_iteration<batch_end_iter-500:
+                            gaussians.reset_opacity()
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):
