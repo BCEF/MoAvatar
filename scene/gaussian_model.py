@@ -613,6 +613,15 @@ class GaussianModel:
 
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
+            #check 检查变形后结果
+            from .dataset_readers import storePly
+            test_output_folder="/home/momo/Desktop/test_data/output_01/"
+            os.makedirs(test_output_folder,exist_ok=True)
+            ply_path=test_output_folder+str(kid)+'.ply'
+            storePly(ply_path,deform_points,np.ones_like(deform_points))
+
+            xyz0=test_output_folder+'xyz0.ply'
+            storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
 
             inv_trans_path=os.path.join(os.path.dirname(deformer_path),"inv_transforms.json")
             inv_transform=DeformationTransforms()
@@ -705,6 +714,7 @@ class GaussianModel:
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
+        
         delta_features=self.features_mlp(encoded)  # 计算特征
         delta_features_dc = delta_features[:, :, :3]  # DC features
         delta_features_dc=delta_features_dc.squeeze(0)
@@ -891,7 +901,9 @@ class GaussianModel:
 
          
         self._features_dc_0 = optimizable_tensors["f_dc_0"]
+        self._features_dc_t=self._features_dc_0.detach().clone()
         self._features_rest_0 = optimizable_tensors["f_rest_0"]
+        self._features_rest_t=self._features_rest_0.detach().clone()
         self._opacity = optimizable_tensors["opacity"]
 
         

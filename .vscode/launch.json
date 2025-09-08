@@ -39,15 +39,15 @@
             "justMyCode": true,
             "args": [
                     "--iterations","3000",//每一个batch的循环次数
-                    "--batchnum","5",//batch数量
+                    "--batchnum","2",//batch数量
                     "--looptimes","100",//所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
-                    // "--random_background",
+                    "--random_background",
                     "-r","2",
                     // "-w",
-                    "-s","/home/momo/Desktop/test_data/frames/",//数据文件夹
-                    "--model_path","/home/momo/Desktop/test_data/output_01/",//输出路径
+                    "-s","/home/momo/Desktop/test_data/keyframes/",//数据文件夹
+                    "--model_path","/home/momo/Desktop/test_data/output_03/",//输出路径
                     "--keyframe_checkpoint","/home/momo/Desktop/test_data/output_01/chkpnt20000.pth",//step2的结果
-                    // "--step3_checkpoint","/home/momo/Downloads/images_momo_4D_05/chkpnt122000.pth"//restore用
+                    // "--step3_checkpoint","/home/momo/Desktop/test_data/output_02/chkpnt44000.pth"//restore用
                     ]
         },
         {
@@ -64,9 +64,9 @@
                     "--batchnum","5",
                     "-r","2",
                     "-w",
-                    "-s","/home/momo/Downloads/images_momo/",//数据文件夹
-                    "--model_path","/home/momo/Downloads/images_momo_4D_05",//输出路径
-                    "--step3_checkpoint","/home/momo/Downloads/images_momo_4D_05/chkpnt122000.pth"//step3的结果
+                    "-s","/home/momo/Desktop/test_data/keyframes/",//数据文件夹
+                    "--model_path","/home/momo/Desktop/test_data/output_02",//输出路径
+                    "--step3_checkpoint","/home/momo/Desktop/test_data/output_02/chkpnt44000.pth"//step3的结果
                     ]
         },
     ]
