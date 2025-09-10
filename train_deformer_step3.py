@@ -173,15 +173,39 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 codedict['kid'] = viewpoint_cam.kid
                 gaussians.forward(codedict,update=True)
 
+                
+                black_bg = torch.tensor( [0, 0, 0], dtype=torch.float32, device="cuda")
+                render_pkg = render(viewpoint_cam, gaussians, pipe, black_bg, use_trained_exp=dataset.train_test_exp)
+                image_black,radii = render_pkg["render"], render_pkg["radii"]
+
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
+
                 gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha_mask is not None:
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
-                    image *= alpha_mask
+                # if viewpoint_cam.alpha_mask is not None:
+                #     alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                #     image *= alpha_mask
+                if viewpoint_cam.bg_path is not None:
+                    bg_image=scene.get_background_image(viewpoint_cam)
+                    alpha=viewpoint_cam.alpha.cuda()
                     
-                if viewpoint_cam.alpha is not None:
+                    # diff = torch.abs(image - bg.view(3, 1, 1))
+                    # mask = torch.all(diff < 1e-4, dim=0)
+                    # image[:,mask]=0
+
+                    image_black=image_black+bg_image*(1-alpha)
+                    image=image*alpha+bg_image*(1-alpha)
+
+                    # image=torch.abs(image-torch.ones_like(image))+bg_image*(1-alpha)
+
+                    if local_iteration%100==0:
+                        image = image.clamp(0, 1)
+                        image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
+                        save_image = image_np
+                        save_image = save_image[:,:,[2,1,0]]
+                        cv2.imwrite(os.path.join(dataset.model_path, f'{global_iteration:06d}_{viewpoint_cam.image_name}'), save_image)
+                elif viewpoint_cam.alpha is not None:
                     #SUMO
                     alpha=viewpoint_cam.alpha.cuda()
                     if dataset.white_background:
@@ -199,7 +223,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         gt_image*=alpha
 
                 
-                Ll1 = l1_loss(image, gt_image)
+                Ll1 = l1_loss(image, gt_image)*0.5+l1_loss(image_black, gt_image)*0.5
                 if FUSED_SSIM_AVAILABLE:
                     ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
                 else:
@@ -293,6 +317,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians.optimizer.step()
                             gaussians.optimizer.zero_grad(set_to_none = True)
 
+                    if (local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter)) and local_iteration<batch_end_iter-500:
+                            gaussians.reset_opacity()
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):

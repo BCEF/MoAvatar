@@ -120,7 +120,7 @@ class OptimizationParams(ParamGroup):
         self.alpha_smooth = 5.0    # 平滑正则化的自适应权重系数
         
         #新增最小scale
-        self.min_scale=0.02
+        self.min_scale=0.01
 
         super().__init__(parser, "Optimization Parameters")
 

@@ -108,7 +108,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
             print(f"Warning: Failed to process FLAME parameters: {e}")
 
     deformer_path=cam_info.deformer_path
-
+    bg_path=cam_info.bg_path
     orig_w, orig_h = image.size
     if args.resolution in [1, 2, 4, 8]:
         resolution = round(orig_w/(resolution_scale * args.resolution)), round(orig_h/(resolution_scale * args.resolution))
@@ -143,7 +143,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_nerf_synthetic, is_test_dat
                   exp_param=exp_param, global_rotation=global_rotation, jaw_pose=jaw_pose, 
                   neck_pose=neck_pose, eyes_pose=eyes_pose, transl=transl,scale_factor=scale_factor,
                   #deformer参数
-                  deformer_path=deformer_path
+                  deformer_path=deformer_path,bg_path=bg_path
                   )
 def cameraList_from_camInfos(cam_infos, resolution_scale, args, is_nerf_synthetic, is_test_dataset):
     camera_list = []

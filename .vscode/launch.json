@@ -15,15 +15,15 @@
             },
             "justMyCode": true,
             "args": [
-                    "--iterations","20000",//每一个batch的循环次数
-                    "--batchnum","1",//batch数量，关键帧帧数少，batch也小
-                    "--looptimes","1",//batch越多，looptime设置的越多，所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
+                    "--iterations","3000",//每一个batch的循环次数
+                    "--batchnum","3",//batch数量，关键帧帧数少，batch也小
+                    "--looptimes","5",//batch越多，looptime设置的越多，所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
                     // "--random_background",
-                    "-r","2",
+                    "-r","4",
                     // "-w",
-                    "-s","/home/momo/Desktop/test_data/keyframes/",//关键帧数据文件夹
-                    "--model_path","/home/momo/Desktop/test_data/output_01/",//输出路径
-                    "--init_ply_path","/home/momo/Desktop/test_data/GaussianInit_speedy.ply"//预训练ply文件
+                    "-s","/home/momo/Downloads/images_momo",//关键帧数据文件夹
+                    "--model_path","/home/momo/Downloads/images_momo_dyDeform3/",//输出路径
+                    "--init_ply_path","/home/momo/Downloads/images_momo/temp_train.ply"//预训练ply文件
                     // "--step2_checkpoint","/root/work/data/4_all/gs_output_deform_01/chkpnt120000.pth"//restore用
                     ]
         },
@@ -38,16 +38,17 @@
             },
             "justMyCode": true,
             "args": [
-                    "--iterations","3000",//每一个batch的循环次数
-                    "--batchnum","2",//batch数量
+                    "--iterations","1000",//每一个batch的循环次数
+                    "--batchnum","7",//batch数量
                     "--looptimes","100",//所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
                     "--random_background",
                     "-r","2",
                     // "-w",
-                    "-s","/home/momo/Desktop/test_data/keyframes/",//数据文件夹
-                    "--model_path","/home/momo/Desktop/test_data/output_03/",//输出路径
-                    "--keyframe_checkpoint","/home/momo/Desktop/test_data/output_01/chkpnt20000.pth",//step2的结果
-                    // "--step3_checkpoint","/home/momo/Desktop/test_data/output_02/chkpnt44000.pth"//restore用
+                    "-s","/home/momo/Downloads/images_momo",//数据文件夹
+                    "--model_path","/home/momo/Downloads/images_momo_dyDeform4/",//输出路径
+                    "--keyframe_checkpoint","/home/momo/Downloads/images_momo_dyDeform3/chkpnt9000.pth",//step2的结果
+                    // "--step3_checkpoint","/home/momo/Downloads/images_momo_dyDeform3/chkpnt33000.pth"//restore用
+                    // "--init_ply_path","/home/momo/Downloads/images_momo/temp_train.ply"
                     ]
         },
         {
@@ -63,10 +64,10 @@
             "args": [
                     "--batchnum","5",
                     "-r","2",
-                    "-w",
-                    "-s","/home/momo/Desktop/test_data/keyframes/",//数据文件夹
-                    "--model_path","/home/momo/Desktop/test_data/output_02",//输出路径
-                    "--step3_checkpoint","/home/momo/Desktop/test_data/output_02/chkpnt44000.pth"//step3的结果
+                    // "-w",
+                    "-s","/home/momo/Downloads/images_momo",//数据文件夹
+                    "--model_path","/home/momo/Downloads/images_momo_dyDeform3/",//输出路径
+                    "--step3_checkpoint","/home/momo/Downloads/images_momo_dyDeform3/chkpnt40000.pth"//step3的结果
                     ]
         },
     ]
