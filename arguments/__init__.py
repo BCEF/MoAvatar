@@ -112,8 +112,8 @@ class OptimizationParams(ParamGroup):
         self.optimizer_type = "default"
 
         #SUMO
-        self.lambda_temp = 10.0   # 时间正则化权重
-        self.alpha_temp = 100.0     # 时间正则化的自适应权重系数
+        self.lambda_temp = 1.0   # 时间正则化权重
+        self.alpha_temp = 10.0     # 时间正则化的自适应权重系数
         
         # 新增平滑正则化参数
         self.lambda_smooth = 5  # 平滑正则化权重

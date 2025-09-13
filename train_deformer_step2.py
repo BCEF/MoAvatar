@@ -13,7 +13,7 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render_abs as render
+from gaussian_renderer import render_bribg as render
 from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -44,6 +44,7 @@ except:
 #SUMO
 from utils.loss_utils import E_scale
 import cv2
+import matplotlib.pyplot as plt
 #SUMO
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
 
@@ -117,6 +118,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 
                 bg = torch.rand((3), device="cuda") if opt.random_background else background
 
+
+
                 if network_gui.conn == None:
                     network_gui.try_connect()
                 while network_gui.conn != None:
@@ -148,6 +151,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 viewpoint_cam = viewpoint_stack.pop(rand_idx)
                 vind = viewpoint_indices.pop(rand_idx)
 
+                if viewpoint_cam.bg_path is not None:
+                    bg=scene.get_background_image(viewpoint_cam)
+                
+
                 if (local_iteration - 1) == debug_from:
                     pipe.debug = True
 
@@ -162,6 +169,15 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 
+                if iteration % 500 == 1:
+
+                    image_to_save =image.permute(1, 2, 0).detach().cpu().numpy()
+                    # image_to_save = torch.clamp(image_to_save, 0, 1)
+                    try:
+                        plt.imsave(f"{dataset.model_path}/rendered-image{iteration-1}.png", image_to_save)
+                    except Exception as e:
+                        print(e)
+
                 # if viewpoint_cam.alpha_mask is not None:
                 #     alpha_mask = viewpoint_cam.alpha_mask.cuda()
                 #     image *= alpha_mask
@@ -170,48 +186,23 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 gt_image = viewpoint_cam.original_image.cuda()
 
                 #SUMO
-                if viewpoint_cam.bg_path is not None:
-                    bg_image=scene.get_background_image(viewpoint_cam)
-                    alpha=viewpoint_cam.alpha.cuda()
-                    image=image+bg_image*(1-alpha)
+                # if viewpoint_cam.alpha is not None:
+                #     #SUMO
+                #     alpha=viewpoint_cam.alpha.cuda()
+                #     if dataset.white_background:
+                #         background_image = torch.ones_like(gt_image)  # 白色背景
+                #         gt_image = gt_image * alpha + background_image * (1 - alpha)
+                #     else:
+                #         gt_image*=alpha
 
-                    # threshold1=0.1
-                    # threshold2=0.2
-                    # distance1 = torch.norm(gt_image - bg_image, dim=0)
-                    # distance2 = torch.norm(image - bg.view(3, 1, 1), dim=0)
-                    # mask = (distance1<threshold1) | (distance2 < threshold2)
-                    # image[:,mask]=bg_image[:,mask]
-
-                    # distance2 = torch.sum(torch.abs(image - bg.view(3, 1, 1)), dim=0)
-                    # alpha = (distance2 - distance2.min()) / (distance2.max() - distance2.min() + 1e-8)
-                    # alpha*=2
-                    # image=image*alpha+bg_image*(1-alpha)
-
-                    if local_iteration%100==0:
-                        image = image.clamp(0, 1)
-                        image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
-                        save_image = image_np
-                        save_image = save_image[:,:,[2,1,0]]
-                        # os.makedirs(os.path.join(dataset.model_path, f'{global_iteration:06d}'),exist_ok=True)
-                        cv2.imwrite(os.path.join(dataset.model_path, f'{global_iteration:06d}_{viewpoint_cam.image_name}'), save_image)
-
-                elif viewpoint_cam.alpha is not None:
-                    #SUMO
-                    alpha=viewpoint_cam.alpha.cuda()
-                    if dataset.white_background:
-                        background_image = torch.ones_like(gt_image)  # 白色背景
-                        gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    else:
-                        gt_image*=alpha
-
-                    if opt.random_background:
-                        background_image = torch.ones_like(gt_image)  # 随机背景
-                        background_image[0,::]=bg[0]
-                        background_image[1,::]=bg[1]
-                        background_image[2,::]=bg[2]
-                        gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    else:
-                        gt_image*=alpha
+                #     if opt.random_background:
+                #         background_image = torch.ones_like(gt_image)  # 随机背景
+                #         background_image[0,::]=bg[0]
+                #         background_image[1,::]=bg[1]
+                #         background_image[2,::]=bg[2]
+                #         gt_image = gt_image * alpha + background_image * (1 - alpha)
+                #     else:
+                #         gt_image*=alpha
                 
                 Ll1 = l1_loss(image, gt_image)
                 if FUSED_SSIM_AVAILABLE:

@@ -2,7 +2,7 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render_abs as render
+from gaussian_renderer import render_bribg as render
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -74,6 +74,18 @@ def training(dataset, opt, pipe,checkpoint_path):
                 save_image = save_image[:,:,[2,1,0]]
                 print(os.path.join(dataset.model_path, foldername))
                 cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
+
+                if viewpoint_cam.bg_path is not None:
+                    bg=scene.get_background_image(viewpoint_cam)
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+                    image = render_pkg["render"]
+                    image = image.clamp(0, 1)
+                    image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
+                    save_image = image_np
+                    save_image = save_image[:,:,[2,1,0]]
+                    print(os.path.join(dataset.model_path, foldername))
+                    cv2.imwrite(os.path.join(dataset.model_path,foldername, f'render_{save_name}.png'), save_image)
+
                 gaussians.save_ply(os.path.join(dataset.model_path,foldername, str(viewpoint_cam.kid).zfill(4)+'.ply'))
         scene.clearCameras(1.0) 
 

@@ -571,7 +571,7 @@ def readDeformSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,c
     for camera_info in cam_infos_unsorted:
         alpha_reading_dir = "alpha" if alpha_folder == None else alpha_folder
         camera_info.alpha_path=os.path.join(path,alpha_reading_dir,camera_info.image_name)
-        bg_reading_dir="background" if bg_img_folder==None else bg_img_folder
+        bg_reading_dir="bg" if bg_img_folder==None else bg_img_folder
         camera_info.bg_path=os.path.join(path,bg_reading_dir,camera_info.image_name)
         camera_info.deformer_path=deformer_path
         camera_info.kid=kid
