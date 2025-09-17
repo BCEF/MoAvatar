@@ -142,7 +142,7 @@ class GaussianModel:
         self.vertex_deformer=None
         self._edge_indices=None
 
-        self.influ_nums=20
+        self.influ_nums=10
         code_dim=1+(1+3+4)*self.influ_nums#t,w,q,t
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维

@@ -123,7 +123,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
             # 计算当前batch的局部iteration范围
             batch_start_iter = global_iteration + 1
-            batch_end_iter = global_iteration + opt.iterations
+            # batch_end_iter = global_iteration + opt.iterations
+            batch_end_iter = global_iteration + opt.iterations*(batch_end-batch_start)//batch_size
             
             progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle{cycle+1} Batch{batch_idx+1}")
             
@@ -259,11 +260,11 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 loss_temp=0.0
                 loss_smooth=0.0
 
-                loss_temp = E_temp(current_dict, previous_dict)*opt.lambda_temp
-                loss+=loss_temp
+                # loss_temp = E_temp(current_dict, previous_dict)*opt.lambda_temp
+                # loss+=loss_temp
 
-                loss_smooth=E_smooth(current_dict,previous_dict,gaussians._edge_indices[0], gaussians._edge_indices[1],alpha=opt.alpha_smooth)*opt.lambda_smooth
-                loss+=loss_smooth
+                # loss_smooth=E_smooth(current_dict,previous_dict,gaussians._edge_indices[0], gaussians._edge_indices[1],alpha=opt.alpha_smooth)*opt.lambda_smooth
+                # loss+=loss_smooth
                 
 
                 loss.backward()
@@ -317,6 +318,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
             
             scene.save(global_iteration+viewpoint_cam.kid)
             scene.clearCameras(dataset.rscale)
+            torch.save((gaussians.capture(), global_iteration), scene.model_path + "/chkpnt" + str(global_iteration) + ".pth")
             
 
         #在每个cycle结束时保存一次模型 
