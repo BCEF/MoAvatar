@@ -24,10 +24,10 @@ class Camera(nn.Module):
                  # 添加新的参数
                  kid=0,timecode=0.0,alpha=None, head_mask=None, mouth_mask=None,
                  shape_param=None,exp_param=None, global_rotation=None, jaw_pose=None, neck_pose=None, eyes_pose=None, transl=None,scale_factor=None,
-                 deformer_path=None
+                 deformer_path=None,bg_path=None
                  ):
         super(Camera, self).__init__()
-
+        self.resolution=resolution
         self.uid = uid
         self.colmap_id = colmap_id
         self.R = R
@@ -218,6 +218,7 @@ class Camera(nn.Module):
                 self.scale_factor = None
         
         self.deformer_path=deformer_path
+        self.bg_path=bg_path
         #end SUMO
 
         self.invdepthmap = None
@@ -285,6 +286,7 @@ class Camera(nn.Module):
             'transl': self.transl,
             'scale_factor': self.scale_factor
         }
+
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
         self.image_width = width

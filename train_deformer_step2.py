@@ -13,7 +13,7 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render_abs as render
+from gaussian_renderer import render_bribg as render
 from gaussian_renderer import network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -43,7 +43,8 @@ except:
 
 #SUMO
 from utils.loss_utils import E_scale
-
+import cv2
+import matplotlib.pyplot as plt
 #SUMO
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
 
@@ -110,11 +111,14 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
             
             progress_bar = tqdm(range(batch_start_iter, batch_end_iter + 1), desc=f"Cycle{cycle+1} Batch{batch_idx+1}")
             
+
             for iteration in range(batch_start_iter, batch_end_iter + 1):
                 # 更新全局iteration计数器
                 global_iteration = iteration
                 
                 bg = torch.rand((3), device="cuda") if opt.random_background else background
+
+
 
                 if network_gui.conn == None:
                     network_gui.try_connect()
@@ -147,30 +151,12 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 viewpoint_cam = viewpoint_stack.pop(rand_idx)
                 vind = viewpoint_indices.pop(rand_idx)
 
-                if (local_iteration - 1) == debug_from:
-                    pipe.debug = True
-
+                if viewpoint_cam.bg_path is not None:
+                    bg=scene.get_background_image(viewpoint_cam)
                 
 
-                #SUMO
-                gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha is not None:
-                    #SUMO
-                    alpha=viewpoint_cam.alpha.cuda()
-                    if dataset.white_background:
-                        background_image = torch.ones_like(gt_image)  # 白色背景
-                        gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    else:
-                        gt_image*=alpha
-
-                    if opt.random_background:
-                        background_image = torch.ones_like(gt_image)  # 随机背景
-                        background_image[0,::]=bg[0]
-                        background_image[1,::]=bg[1]
-                        background_image[2,::]=bg[2]
-                        gt_image = gt_image * alpha + background_image * (1 - alpha)
-                    else:
-                        gt_image*=alpha
+                if (local_iteration - 1) == debug_from:
+                    pipe.debug = True
 
                 loss=0
                 
@@ -179,17 +165,44 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 codedict['t']=viewpoint_cam.timecode
                 codedict['kid'] = viewpoint_cam.kid
                 
-                #SUMO 标准空间的约束项，令其与第0帧一致
-                # if viewpoint_cam.kid==0:
-                #     gaussians.forward_x0()
-                # else:
                 gaussians.forward(codedict,update=True)
                 render_pkg = render(viewpoint_cam, gaussians, pipe, bg, use_trained_exp=dataset.train_test_exp)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
                 
-                if viewpoint_cam.alpha_mask is not None:
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
-                    image *= alpha_mask
+                if iteration % 500 == 1:
+
+                    image_to_save =image.permute(1, 2, 0).detach().cpu().numpy()
+                    # image_to_save = torch.clamp(image_to_save, 0, 1)
+                    try:
+                        plt.imsave(f"{dataset.model_path}/rendered-image{iteration-1}.png", image_to_save)
+                    except Exception as e:
+                        print(e)
+
+                # if viewpoint_cam.alpha_mask is not None:
+                #     alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                #     image *= alpha_mask
+                
+                #SUMO
+                gt_image = viewpoint_cam.original_image.cuda()
+
+                #SUMO
+                # if viewpoint_cam.alpha is not None:
+                #     #SUMO
+                #     alpha=viewpoint_cam.alpha.cuda()
+                #     if dataset.white_background:
+                #         background_image = torch.ones_like(gt_image)  # 白色背景
+                #         gt_image = gt_image * alpha + background_image * (1 - alpha)
+                #     else:
+                #         gt_image*=alpha
+
+                #     if opt.random_background:
+                #         background_image = torch.ones_like(gt_image)  # 随机背景
+                #         background_image[0,::]=bg[0]
+                #         background_image[1,::]=bg[1]
+                #         background_image[2,::]=bg[2]
+                #         gt_image = gt_image * alpha + background_image * (1 - alpha)
+                #     else:
+                #         gt_image*=alpha
                 
                 Ll1 = l1_loss(image, gt_image)
                 if FUSED_SSIM_AVAILABLE:
@@ -266,8 +279,9 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, size_threshold, radii,kid)
                             print(f'稠密化和剪枝后高斯点数：{gaussians._xyz_0.shape[0]}')
 
-                        # if local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter):
-                        #     gaussians.reset_opacity()
+                        # 结束前500次不要进行reset opacity
+                        if (local_iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and local_iteration == opt.densify_from_iter)) and local_iteration<batch_end_iter-500:
+                            gaussians.reset_opacity()
                             
                     # 使用全局iteration进行检查点保存
                     if (global_iteration in checkpoint_iterations):

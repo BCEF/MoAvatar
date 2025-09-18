@@ -20,7 +20,8 @@ from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from scene.dataset_readers import SceneInfo
 import torch
 import gc
-from utils.general_utils import quantize_by_decimal
+from PIL import Image
+from utils.general_utils import PILtoTorch
 class Scene:
 
     gaussians : GaussianModel
@@ -45,6 +46,7 @@ class Scene:
         self.resolution_scales = resolution_scales
         self.scale=1
         self.loadMultiDeformSceneInfo(args, shuffle)
+        self.bg_image_dict={}
 
     #SUMO
     def loadOneFrameSceneInfo(self,args,shuffle=True):
@@ -131,10 +133,15 @@ class Scene:
             colmap_folder=os.path.join(frame_folder,'sparse/0')
             if not os.path.exists(colmap_folder):
                 colmap_folder = os.path.join(root_folder, 'sparse/0')
+            bg_img_folder=os.path.join(frame_folder,'bg')
+            if not os.path.exists(bg_img_folder):
+                bg_img_folder=os.path.join(root_folder,'bg')
+
             deformer_path=os.path.join(frame_folder,'transforms.json')
 
             scene_info=sceneLoadTypeCallbacks["Deform"](frame_folder,args.images, args.depths, args.eval, args.train_test_exp,
-                                                       colmap_folder=colmap_folder,deformer_path=deformer_path,
+                                                       colmap_folder=colmap_folder,
+                                                       deformer_path=deformer_path,bg_img_folder=bg_img_folder,
                                                        kid=kid,timecode=timecode)
             if self.scene_info is None:
                 self.scene_info=scene_info
@@ -352,3 +359,28 @@ class Scene:
 
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]
+    
+    def get_background_image(self,viewpoint_cam):
+        bg_path=viewpoint_cam.bg_path
+        # print(viewpoint_cam.image_name,bg_path)
+        # print(os.path.exists(bg_path))
+        if bg_path not in self.bg_image_dict:
+            bg_image = Image.open(bg_path)
+            bg_resized = PILtoTorch(bg_image, viewpoint_cam.resolution).to("cuda")
+
+            # import numpy as np
+            # # resized_image_PIL = bg_image.resize(viewpoint_cam.resolution)
+            # resized_image_PIL=bg_image
+            # resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
+            # resized_image=resized_image.to("cuda")
+            # if len(resized_image.shape) == 3:
+            #     bg_resized=resized_image.permute(2, 0, 1)
+            # else:
+            #     bg_resized=resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
+
+            self.bg_image_dict[bg_path]=bg_resized
+        return self.bg_image_dict[bg_path]
+            
+        
+        
+        

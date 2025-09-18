@@ -142,7 +142,7 @@ class GaussianModel:
         self.vertex_deformer=None
         self._edge_indices=None
 
-        self.influ_nums=20
+        self.influ_nums=10
         code_dim=1+(1+3+4)*self.influ_nums#t,w,q,t
         # 根据编码后的维度初始化 MLP
         dim_encoded = 3 * (1 + 2 * self.num_freqs)  # 51 维
@@ -613,6 +613,15 @@ class GaussianModel:
 
             self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
+            #check 检查变形后结果
+            from .dataset_readers import storePly
+            test_output_folder="/home/momo/Desktop/test_data/output_01/"
+            os.makedirs(test_output_folder,exist_ok=True)
+            ply_path=test_output_folder+str(kid)+'.ply'
+            storePly(ply_path,deform_points,np.ones_like(deform_points))
+
+            xyz0=test_output_folder+'xyz0.ply'
+            storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
 
             inv_trans_path=os.path.join(os.path.dirname(deformer_path),"inv_transforms.json")
             inv_transform=DeformationTransforms()
@@ -705,6 +714,7 @@ class GaussianModel:
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
+        
         delta_features=self.features_mlp(encoded)  # 计算特征
         delta_features_dc = delta_features[:, :, :3]  # DC features
         delta_features_dc=delta_features_dc.squeeze(0)
@@ -891,7 +901,9 @@ class GaussianModel:
 
          
         self._features_dc_0 = optimizable_tensors["f_dc_0"]
+        self._features_dc_t=self._features_dc_0.detach().clone()
         self._features_rest_0 = optimizable_tensors["f_rest_0"]
+        self._features_rest_t=self._features_rest_0.detach().clone()
         self._opacity = optimizable_tensors["opacity"]
 
         
@@ -1043,7 +1055,7 @@ class GaussianModel:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
-        # self.prune_points(prune_mask)
+        self.prune_points(prune_mask)
         tmp_radii = self.tmp_radii
         self.tmp_radii = None
 

@@ -2,7 +2,7 @@ import os
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render_bribg as render
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -24,10 +24,10 @@ def training(dataset, opt, pipe,checkpoint_path):
     if checkpoint_path:
         (model_params, first_iter) = torch.load(checkpoint_path,weights_only=False,map_location="cuda")
         gaussians.restore_step3(model_params, opt)
-        render_ckpt_path=checkpoint_path[:-4] + "_render.pth"
-        torch.save(gaussians.capture_render(), render_ckpt_path)
-        model_params = torch.load(render_ckpt_path,weights_only=False,map_location="cuda")
-        gaussians.restore_render(model_params)
+        # render_ckpt_path=checkpoint_path[:-4] + "_render.pth"
+        # torch.save(gaussians.capture_render(), render_ckpt_path)
+        # model_params = torch.load(render_ckpt_path,weights_only=False,map_location="cuda")
+        # gaussians.restore_render(model_params)
 
     torch.cuda.empty_cache()
 
@@ -60,13 +60,13 @@ def training(dataset, opt, pipe,checkpoint_path):
                 if viewpoint_cam.image_name != std_name:
                     continue
                 save_name=str(viewpoint_cam.kid).zfill(4)#+'_'+viewpoint_cam.image_name
-                bg = torch.rand((3), device="cuda") if opt.random_background else background
+                # bg = torch.rand((3), device="cuda") if opt.random_background else background
                 codedict={}
                 codedict['deformer_path']=viewpoint_cam.deformer_path
                 codedict['t']=viewpoint_cam.timecode
                 codedict['kid'] = viewpoint_cam.kid
                 gaussians.forward_render(codedict)
-                render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+                render_pkg = render(viewpoint_cam, gaussians, pipe, background)
                 image = render_pkg["render"]
                 image = image.clamp(0, 1)
                 image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
@@ -74,6 +74,18 @@ def training(dataset, opt, pipe,checkpoint_path):
                 save_image = save_image[:,:,[2,1,0]]
                 print(os.path.join(dataset.model_path, foldername))
                 cv2.imwrite(os.path.join(dataset.model_path,foldername, f'{save_name}.png'), save_image)
+
+                if viewpoint_cam.bg_path is not None:
+                    bg=scene.get_background_image(viewpoint_cam)
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+                    image = render_pkg["render"]
+                    image = image.clamp(0, 1)
+                    image_np = (image*255.).permute(1,2,0).detach().cpu().numpy()
+                    save_image = image_np
+                    save_image = save_image[:,:,[2,1,0]]
+                    print(os.path.join(dataset.model_path, foldername))
+                    cv2.imwrite(os.path.join(dataset.model_path,foldername, f'render_{save_name}.png'), save_image)
+
                 gaussians.save_ply(os.path.join(dataset.model_path,foldername, str(viewpoint_cam.kid).zfill(4)+'.ply'))
         scene.clearCameras(1.0) 
 

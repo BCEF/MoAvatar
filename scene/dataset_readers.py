@@ -50,6 +50,7 @@ class CameraInfo:
     timecode: float = 0.0 
     #SUMO
     deformer_path:str=""
+    bg_path:str=""
 
 @dataclass
 class SceneInfo:
@@ -514,7 +515,7 @@ def readFlameSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,co
     return scene_info
 
 #SUMO
-def readDeformSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,alpha_folder=None,deformer_path=None,kid=0,timecode=0.0):
+def readDeformSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,colmap_folder=None,alpha_folder=None,deformer_path=None,bg_img_folder=None,kid=0,timecode=0.0):
     sparse_folder=os.path.join(path, "sparse/0") if colmap_folder is None else colmap_folder
 
     cameras_extrinsic_file = os.path.join(sparse_folder, "images.bin")
@@ -570,6 +571,8 @@ def readDeformSceneInfo(path, images, depths, eval, train_test_exp, llffhold=8,c
     for camera_info in cam_infos_unsorted:
         alpha_reading_dir = "alpha" if alpha_folder == None else alpha_folder
         camera_info.alpha_path=os.path.join(path,alpha_reading_dir,camera_info.image_name)
+        bg_reading_dir="bg" if bg_img_folder==None else bg_img_folder
+        camera_info.bg_path=os.path.join(path,bg_reading_dir,camera_info.image_name)
         camera_info.deformer_path=deformer_path
         camera_info.kid=kid
         camera_info.timecode=timecode
