@@ -191,7 +191,7 @@ def get_deformation_info_fixed_influences(dg, points, transforms, num_influences
     
     # 创建变换信息存储结构
     transform_info = {
-        # 'influence_nodes': [],      # 每个点的影响节点索引列表
+        'indices': [],      # 每个点的影响节点索引列表
         'weights': [],              # 每个点的权重列表
         'RT':[]
     }
@@ -243,7 +243,7 @@ def get_deformation_info_fixed_influences(dg, points, transforms, num_influences
                 point_transforms.append(transform_matrix.copy())
             
             # 保存变换信息
-            # transform_info['influence_nodes'].append(point_node_indices.tolist())
+            transform_info['indices'].append(point_node_indices.tolist())
             transform_info['weights'].append(weights.tolist())
             transform_info['RT'].append(point_transforms)
     

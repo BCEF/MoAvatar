@@ -108,7 +108,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
             scene.loadTrainCameras(all_train_cameras[batch_start:batch_end], dataset.rscale)
             scene.loadTestCameras(scene.getAvailableCamInfos()['test_cameras'][batch_start:batch_end],dataset.rscale)
 
-            if gaussians.vertex_deformer is None or gaussians.temp_flame_vertices is None:
+            if gaussians.vertex_deformer is None or gaussians.temp_deformed_xyz is None:
                 dg_path=os.path.join(dataset.source_path,'deformation_graph.json')
                 gaussians.deform_init(dg_path)
 

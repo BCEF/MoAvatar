@@ -28,7 +28,7 @@ from scene.deform_model import positional_encoding,MLP,SIREN
 # from flame_pytorch import FLAME, parse_args
 # import trimesh
 # from deformation_graph import apply_deformation_to_gaussians,apply_deformation_to_gaussians_fix_influ,generate_deformation_graph,compute_deformation_transforms
-from deformation_graph import get_deformation_info_fixed_influences,DeformationGraph,apply_deformation_to_gaussians2
+from deformation_graph import get_deformation_info_fixed_influences,DeformationGraph,apply_deformation_to_gaussians2,apply_deformation_to_gaussians_fix_influ_complete,apply_deformation_to_gaussians_full
 from deformation_graph import DeformationTransforms
 from sklearn.neighbors import NearestNeighbors #SUMO
 from utils.general_utils import build_quaternion,weighted_quaternion_log_space
@@ -138,7 +138,8 @@ class GaussianModel:
         #SUMO
         self.base_xyz=None
         self.dg=None
-        self.temp_flame_vertices=None
+        self.temp_deformed_xyz=None
+        self.temp_deformed_rot=None
         self.vertex_deformer=None
         self._edge_indices=None
 
@@ -167,9 +168,12 @@ class GaussianModel:
         self.dg.load(dg_path)
         if self.base_xyz is None:
             self.base_xyz=self._xyz_0.detach().cpu().clone()
+            self.base_rotation=self._rotation_0.detach().cpu().clone()
             # storePly("/home/momo/Desktop/data/0724/data/base_xyz.ply",self.base_xyz)
-        if self.temp_flame_vertices is None:
-            self.temp_flame_vertices = {}
+        if self.temp_deformed_xyz is None:
+            self.temp_deformed_xyz = {}
+        if self.temp_deformed_rot is None:
+            self.temp_deformed_rot = {}
         if self.vertex_deformer is None:
             self.vertex_deformer={}
       
@@ -196,7 +200,7 @@ class GaussianModel:
             self.dg_path,
             self.base_xyz,
             self.vertex_deformer,
-            self.temp_flame_vertices,
+            self.temp_deformed_xyz,
             self.inverse_deform_transforms,
             self._edge_indices
             
@@ -225,7 +229,7 @@ class GaussianModel:
         dg_path,
         base_xyz,
         self.vertex_deformer,
-        self.temp_flame_vertices,
+        self.temp_deformed_xyz,
         self.inverse_deform_transforms,
         self._edge_indices
         ) = model_args
@@ -266,7 +270,7 @@ class GaussianModel:
         dg_path,
         self.base_xyz,
         self.vertex_deformer,
-        self.temp_flame_vertices,
+        self.temp_deformed_xyz,
         self.inverse_deform_transforms,
         self._edge_indices
         ) = model_args
@@ -366,7 +370,7 @@ class GaussianModel:
         self.scale_mlp.eval()
         self.features_mlp.eval()
         self.vertex_deformer={}
-        self.temp_flame_vertices={}
+        self.temp_deformed_xyz={}
 
     @property
     def get_scaling(self):
@@ -607,21 +611,25 @@ class GaussianModel:
             RT=torch.as_tensor(np.array(result['RT']),dtype=torch.float32).to('cpu')
             quaternions, translations = build_quaternion(RT[..., :3, :3]), RT[..., :3, 3]
 
-            self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
+            self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').view(batch_size, -1)], dim=-1)
 
-            deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
+            # deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
 
-            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
+            # self.temp_deformed_xyz[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
 
-            #check 检查变形后结果
-            from .dataset_readers import storePly
-            test_output_folder="/home/momo/Desktop/test_data/output_01/"
+            #应用旋转变形测试
+            input_points={}
+            input_points['xyz']=self.base_xyz.clone().numpy()
+            input_points['rotations']=self.base_rotation.clone().numpy()
+            deform_points=apply_deformation_to_gaussians_full(self.dg,input_points,transforms)
+            self.temp_deformed_xyz[kid]=torch.as_tensor(deform_points['xyz']).to(self._xyz_0.device)
+            self.temp_deformed_rot[kid]=torch.as_tensor(deform_points['rotations']).to(self._xyz_0.device)
+
+            test_output_folder="/home/momo/Downloads/images_one_output02/"
             os.makedirs(test_output_folder,exist_ok=True)
             ply_path=test_output_folder+str(kid)+'.ply'
-            storePly(ply_path,deform_points,np.ones_like(deform_points))
+            self.save_ply_for_preview(deform_points,ply_path)
 
-            xyz0=test_output_folder+'xyz0.ply'
-            storePly(xyz0,self._xyz_0.detach().cpu().clone().numpy(),np.ones_like(deform_points))
 
             inv_trans_path=os.path.join(os.path.dirname(deformer_path),"inv_transforms.json")
             inv_transform=DeformationTransforms()
@@ -636,12 +644,16 @@ class GaussianModel:
         delta_xyz = self.xyz_mlp(encoded)  # 这时不会报错
         delta_xyz = delta_xyz.squeeze(0)
 
-        _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
+        _xyz_t = self.temp_deformed_xyz[kid] + delta_xyz
 
         delta_rot = self.rot_mlp(encoded)  # 计算旋转
         delta_rot = delta_rot.squeeze(0)
         # SUMO
-        _rotation_t=quatProduct_batch(self._rotation_0, delta_rot)  # 使用四元数乘法组合旋转
+        # _rotation_t=quatProduct_batch(self._rotation_0, delta_rot)  # 使用四元数乘法组合旋转
+
+        #应用旋转变形测试
+        _rotation_t=quatProduct_batch(self.temp_deformed_rot[kid], delta_rot)
+
         delta_scale = self.scale_mlp(encoded)  # 计算缩放
         delta_scale = delta_scale.squeeze(0)
         _scaling_t =self._scaling_0 +delta_scale
@@ -694,8 +706,8 @@ class GaussianModel:
             self.vertex_deformer[kid]=torch.cat([weights.view(batch_size, -1), quaternions.to('cuda').view(batch_size, -1), translations.to('cuda').reshape(batch_size, -1)], dim=-1)
             
             deform_points=apply_deformation_to_gaussians2(self.dg,self.base_xyz.cpu().clone().numpy(),transforms)
-            
-            self.temp_flame_vertices[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
+
+            self.temp_deformed_xyz[kid]=torch.as_tensor(deform_points).to(self._xyz_0.device)
             
         t= torch.as_tensor(codedict['t']).to(self._xyz_0.device).repeat(batch_size,1) # time parameter
         
@@ -705,7 +717,7 @@ class GaussianModel:
         delta_xyz = self.xyz_mlp(encoded)  # 这时不会报错
         delta_xyz = delta_xyz.squeeze(0)
 
-        _xyz_t = self.temp_flame_vertices[kid] + delta_xyz
+        _xyz_t = self.temp_deformed_xyz[kid] + delta_xyz
 
         delta_rot = self.rot_mlp(encoded)  # 计算旋转
         delta_rot = delta_rot.squeeze(0)
@@ -738,6 +750,28 @@ class GaussianModel:
         #WDD
         xyz = self.get_xyz.detach().cpu().numpy()
         rotation = self._rotation_t.detach().cpu().numpy()
+        scale = self._scaling_t.detach().cpu().numpy()
+
+        normals = np.zeros_like(xyz)
+        f_dc = self._features_dc_t.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        f_rest = self._features_rest_t.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
+        opacities = self._opacity.detach().cpu().numpy()
+        
+        
+        dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
+
+        elements = np.empty(xyz.shape[0], dtype=dtype_full)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        elements[:] = list(map(tuple, attributes))
+        el = PlyElement.describe(elements, 'vertex')
+        PlyData([el]).write(path)
+
+    def save_ply_for_preview(self, deformed_points,path):
+        mkdir_p(os.path.dirname(path))
+
+        #WDD
+        xyz = deformed_points['xyz']
+        rotation = deformed_points['rotations']
         scale = self._scaling_t.detach().cpu().numpy()
 
         normals = np.zeros_like(xyz)

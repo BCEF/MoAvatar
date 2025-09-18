@@ -39,16 +39,16 @@
             "justMyCode": true,
             "args": [
                     "--iterations","1000",//每一个batch的循环次数
-                    "--batchnum","50",//batch数量
+                    "--batchnum","1",//batch数量
                     "--looptimes","100",//所有batch为一个loop，loop的次数 最终的训练次数=iterations×batchnum×looptimes
                     // "--random_background",
                     "-r","2",
                     // "-w",
-                    "-s","/home/momo/Desktop/zd_test_data_02/frames/",//数据文件夹
-                    "--model_path","/home/momo/Desktop/zd_test_data_02/output_02/",//输出路径
-                    "--keyframe_checkpoint","/home/momo/Desktop/zd_test_data_02/output_02/chkpnt4000.pth",//step2的结果
-                    // "--step3_checkpoint","/home/momo/Downloads/images_momo_dyDeform_new01/chkpnt33000.pth"//restore用
-                    // "--init_ply_path","/home/momo/Downloads/images_momo/temp_train.ply"
+                    "-s","/home/momo/Downloads/images_one/",//数据文件夹
+                    "--model_path","/home/momo/Downloads/images_one_output02",//输出路径
+                    // "--keyframe_checkpoint","/home/momo/Downloads/images_momo_dyDeform_new02/chkpnt20000.pth",//step2的结果
+                    // "--step3_checkpoint","/home/momo/Downloads/images_momo_dyDeform_new04/chkpnt92000.pth"//restore用
+                    "--init_ply_path","/home/momo/Downloads/images_one/init_3w.ply"
                     ]
         },
         {
@@ -65,9 +65,9 @@
                     "--batchnum","5",
                     "-r","2",
                     // "-w",
-                    "-s","/home/momo/Desktop/zd_test_data_02/frames/",//数据文件夹
-                    "--model_path","/home/momo/Desktop/zd_test_data_02/output_02/",//输出路径
-                    "--step3_checkpoint","/home/momo/Desktop/zd_test_data_02/output_02/chkpnt55000.pth"//step3的结果
+                    "-s","/home/momo/Downloads/images_momo",//数据文件夹
+                    "--model_path","/home/momo/Downloads/images_momo_dyDeform_new04",//输出路径
+                    "--step3_checkpoint","/home/momo/Downloads/images_momo_dyDeform_new04/chkpnt100000.pth"//step3的结果
                     ]
         },
     ]
