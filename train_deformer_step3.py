@@ -260,11 +260,11 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 loss_temp=0.0
                 loss_smooth=0.0
 
-                # loss_temp = E_temp(current_dict, previous_dict)*opt.lambda_temp
-                # loss+=loss_temp
+                loss_temp = E_temp(current_dict, previous_dict)*opt.lambda_temp
+                loss+=loss_temp
 
-                # loss_smooth=E_smooth(current_dict,previous_dict,gaussians._edge_indices[0], gaussians._edge_indices[1],alpha=opt.alpha_smooth)*opt.lambda_smooth
-                # loss+=loss_smooth
+                loss_smooth=E_smooth(current_dict,previous_dict,gaussians._edge_indices[0], gaussians._edge_indices[1],alpha=opt.alpha_smooth)*opt.lambda_smooth
+                loss+=loss_smooth
                 
 
                 loss.backward()
